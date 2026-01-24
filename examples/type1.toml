@@ -1,0 +1,105 @@
+## Type1: TV wall-mounted WPT (TX below, RX above), right-edge aligned
+
+[units]
+length = "mm" # length unit
+
+[coordinate_system]
+# X: wall normal (positive into room)
+# Y: right along wall (when facing TV)
+# Z: up
+wall_plane_x_mm = [0.0, 0.0, 0.0] # wall plane position in X: [min, max, step]
+floor_plane_z_mm = [0.0, 0.0, 0.0] # floor plane position in Z: [min, max, step]
+
+[constraints]
+# Inter-core spacing (edge-to-edge) in +Z
+core_core_gap_mm = [104.0, 110.0, 0.0] # TX-RX module vertical gap (edge-to-edge)
+# Total RX stack (coil + core) thickness limit
+rx_total_thickness_mm_max = [4.0, 4.0, 0.0] # RX total thickness limit
+tx_gap_from_tv_bottom_mm = [100.0, 100.0, 0.0] # TX top is this far below TV bottom
+
+[layout]
+# Both modules are mounted on the right wall; centers aligned to Z-axis (Y=0)
+right_edge_y_mm = [0.0, 0.0, 0.0] # wall right edge Y position (unused)
+
+[tv]
+present = true
+# 83-inch 16:9 screen (computed)
+# diagonal: 83 in = 2108.2 mm
+screen_diag_in = 83.0
+aspect_ratio = "16:9"
+width_mm = 1837.456
+height_mm = 1033.569
+thickness_mm = 9.0
+model = false
+
+[tv.position]
+# TV back is flush to wall plane (x = 0). Center is half thickness into room.
+center_x_mm = 4.5
+center_y_mm = 0.0
+center_z_mm = 1200.0
+
+[wall]
+present = true
+# Finite wall block for reference (non-model)
+thickness_mm = 100.0
+size_y_mm = 4000.0
+size_z_mm = 3000.0
+model = false
+
+[wall.position]
+# Wall plane at x = 0 (front face). Center is half thickness into negative X.
+center_x_mm = -50.0
+center_y_mm = 0.0
+center_z_mm = 1500.0
+
+[floor]
+present = true
+# Finite floor block for reference (non-model)
+thickness_mm = 100.0
+size_x_mm = 3000.0
+size_y_mm = 4000.0
+model = false
+
+[floor.position]
+# Floor plane at z = 0 (top face). Center is half thickness into negative Z.
+center_x_mm = 1500.0
+center_y_mm = 0.0
+center_z_mm = -50.0
+
+[materials.core]
+mu_r = [800.0, 2000.0, 100.0] # relative permeability
+epsilon_r = [10.0, 15.0, 1.0] # relative permittivity
+conductivity_s_per_m = [0.001, 0.02, 0.001] # electrical conductivity
+
+
+[tx.module]
+present = true # whether TX core is present
+outer_w_mm = [200.0, 400.0, 10.0] # TX core outer width (rectangular)
+outer_h_mm = [200.0, 400.0, 10.0] # TX core outer height (rectangular)
+thickness_mm = [4.0, 120.0, 1.0] # TX core thickness (X length)
+offset_from_coil_mm = [0.0, 3.0, 0.5] # TX core offset from coil
+model = false # non-model geometry
+
+[tx.position]
+# Center position; if align_right_edge=true, center_y is derived from right_edge_y and outer_w
+center_x_mm = [0.0, 0.0, 0.0] # TX center X
+center_y_mm = [0.0, 0.0, 0.0] # TX center Y
+center_z_mm = [120.0, 560.0, 10.0] # TX center Z (between floor and TV bottom)
+
+[rx.module]
+present = true # whether RX core is present
+outer_w_mm = [140.0, 1653.71, 10.0] # RX core outer width (<= 90% TV width)
+outer_h_mm = [140.0, 930.21, 10.0] # RX core outer height (<= 90% TV height)
+thickness_mm = [2.0, 4.0, 0.5] # RX core thickness (<= 4 mm)
+offset_from_coil_mm = [0.0, 1.0, 0.1] # RX core offset from coil
+model = false # non-model geometry
+
+[rx.position]
+# RX is above TX by core_core_gap_mm in +Z (edge-to-edge)
+center_x_mm = [0.0, 0.0, 0.0] # RX center X
+center_y_mm = [0.0, 0.0, 0.0] # RX center Y
+center_z_mm = [600.0, 700.0, 20.0] # RX center Z
+
+[rx.stack]
+# Must be <= rx_total_thickness_mm_max
+total_thickness_mm = [2.5, 4.0, 0.5] # RX total stack thickness
