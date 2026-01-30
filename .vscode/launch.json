@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run one.py (tmp/aedt)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tmp/one.py",
+      "cwd": "${workspaceFolder}/tmp/aedt",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "preLaunchTask": "cleanup-aedt",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    }
+  ]
+}

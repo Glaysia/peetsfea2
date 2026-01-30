@@ -141,6 +141,7 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
     fr4_inner_val = pcb_faces.FR4_INNER_THICKNESS_MM
     copper_val = pcb_faces.COPPER_THICKNESS_MM
     air_gap_val = pcb_faces.AIR_GAP_MM
+    inward_offset_val = pcb_faces.INWARD_OFFSET_FACTOR * pcb_thk_val * 0.5
 
     variables: list[DesignVariable] = [
         var("wall_plane_x", sample.wall_plane_x_mm),
@@ -219,11 +220,73 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
     air_gap_s = sym("pcb_air_gap")
 
     inward_offset_s = sp.Float(pcb_faces.INWARD_OFFSET_FACTOR) * pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
-    scale_s = sp.Float(pcb_faces.IN_PLANE_SCALE)
+    scale_s = sp.Float(pcb_faces.IN_PLANE_SCALE)  # pyright: ignore[reportOperatorIssue]
 
     tx_thk_val = sample.tx_module.thickness_mm
     tx_w_val = sample.tx_module.outer_w_mm
     tx_h_val = sample.tx_module.outer_h_mm
+
+    def _inner_pcb_available_val(axis: str, inner_count: int) -> float:
+        half_thk = pcb_thk_val * 0.5
+        if axis == "yz":
+            neg_boundary = sample.wall_plane_x_mm + inward_offset_val + half_thk
+            pos_boundary = sample.wall_plane_x_mm + sample.tx_module.thickness_mm - inward_offset_val - half_thk
+        elif axis == "zx":
+            tx_corner_y_val = sample.tx_position.center_y_mm - half_size(sample.tx_module.outer_w_mm)
+            neg_boundary = tx_corner_y_val + inward_offset_val + half_thk
+            pos_boundary = tx_corner_y_val + sample.tx_module.outer_w_mm - inward_offset_val - half_thk
+        elif axis == "xy":
+            tx_corner_z_val = sample.tx_position.center_z_mm - half_size(sample.tx_module.outer_h_mm)
+            neg_boundary = tx_corner_z_val + inward_offset_val + half_thk
+            pos_boundary = tx_corner_z_val + sample.tx_module.outer_h_mm - inward_offset_val - half_thk
+        else:
+            raise ValueError(f"Unsupported inner_plane_axis: {axis!r}")
+        return (pos_boundary - neg_boundary) - inner_count * pcb_thk_val
+
+    def _inner_pcb_boundaries(axis: str) -> tuple[sp.Expr, sp.Expr]:
+        if axis == "yz":
+            neg_boundary = wall_plane_x_s + inward_offset_s + pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
+            pos_boundary = wall_plane_x_s + tx_core_thk_s - inward_offset_s - pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
+            return neg_boundary, pos_boundary
+        if axis == "zx":
+            neg_boundary = tx_corner_y_expr + inward_offset_s + pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
+            pos_boundary = tx_corner_y_expr + tx_core_w_s - inward_offset_s - pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
+            return neg_boundary, pos_boundary
+        if axis == "xy":
+            neg_boundary = tx_corner_z_expr + inward_offset_s + pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
+            pos_boundary = tx_corner_z_expr + tx_core_h_s - inward_offset_s - pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
+            return neg_boundary, pos_boundary
+        raise ValueError(f"Unsupported inner_plane_axis: {axis!r}")
+
+    def _inner_pcb_centers(
+        axis: str,
+        inner_count: int,
+        spacing_ratio: tuple[float, ...],
+    ) -> list[sp.Expr]:
+        if inner_count <= 0:
+            return []
+        available_val = _inner_pcb_available_val(axis, inner_count)
+        if available_val <= 0:
+            raise ValueError("TX inner PCB spacing invalid: available length must be positive")
+        neg_boundary, pos_boundary = _inner_pcb_boundaries(axis)
+        span = pos_boundary - neg_boundary  # pyright: ignore[reportOperatorIssue]
+        available = span - sp.Float(inner_count) * pcb_thk_s  # pyright: ignore[reportOperatorIssue]
+
+        weights = spacing_ratio[: inner_count + 1]
+        total = sum(weights)
+        total_expr = sp.Float(total)  # pyright: ignore[reportOperatorIssue]
+
+        gap_exprs: list[sp.Expr] = []
+        for weight in weights:
+            gap_exprs.append(available * sp.Float(weight) / total_expr)  # pyright: ignore[reportOperatorIssue]
+
+        centers: list[sp.Expr] = []
+        center = neg_boundary + gap_exprs[0] + pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
+        centers.append(center)
+        for gap in gap_exprs[1:]:
+            center = center + pcb_thk_s + gap  # pyright: ignore[reportOperatorIssue]
+            centers.append(center)
+        return centers
 
     face_flags = {
         "pos_x": _face_enabled(sample.tx_coil.outer_faces.pos_x, tx_w_val, tx_h_val),
@@ -249,6 +312,14 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
             raise ValueError("TX module trimmed width must remain positive")
         if tx_h_val - trim_z_pos_val - trim_z_neg_val <= 0:
             raise ValueError("TX module trimmed height must remain positive")
+        if sample.tx_coil.inner_pcb_count > 0:
+            inner_centers = _inner_pcb_centers(
+                sample.tx_coil.inner_plane_axis,
+                sample.tx_coil.inner_pcb_count,
+                sample.tx_coil.inner_spacing_ratio,
+            )
+        else:
+            inner_centers = []
 
     trim_dist_s = pcb_thk_s + air_gap_s  # pyright: ignore[reportOperatorIssue]
     trim_x_pos = trim_dist_s if face_flags["pos_x"] else sp.Float(0.0)
@@ -413,6 +484,42 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
                 (tx_center_x_expr, tx_center_y_expr, face_center_z_neg),
                 xy_size,
             )
+
+        if inner_centers:
+            axis_tag = sample.tx_coil.inner_plane_axis.upper()
+            if sample.tx_coil.inner_plane_axis == "yz":
+                axis = 0
+                inner_size = yz_size
+                for idx, center in enumerate(inner_centers, start=1):
+                    add_face_layers(
+                        f"TX_PCB_Inner_{axis_tag}_{idx:02d}",
+                        axis,
+                        1,
+                        (center, tx_center_y_expr, tx_center_z_expr),
+                        inner_size,
+                    )
+            elif sample.tx_coil.inner_plane_axis == "zx":
+                axis = 1
+                inner_size = xz_size
+                for idx, center in enumerate(inner_centers, start=1):
+                    add_face_layers(
+                        f"TX_PCB_Inner_{axis_tag}_{idx:02d}",
+                        axis,
+                        1,
+                        (tx_center_x_expr, center, tx_center_z_expr),
+                        inner_size,
+                    )
+            elif sample.tx_coil.inner_plane_axis == "xy":
+                axis = 2
+                inner_size = xy_size
+                for idx, center in enumerate(inner_centers, start=1):
+                    add_face_layers(
+                        f"TX_PCB_Inner_{axis_tag}_{idx:02d}",
+                        axis,
+                        1,
+                        (tx_center_x_expr, tx_center_y_expr, center),
+                        inner_size,
+                    )
 
     if sample.rx_module.present:
         boxes.append(

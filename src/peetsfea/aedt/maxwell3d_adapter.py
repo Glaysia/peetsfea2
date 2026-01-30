@@ -28,7 +28,9 @@ def _resolve_material_name(material: str, core_name: str) -> str:
         return "copper"
     if material == "fr4":
         return "FR4_epoxy"
-    return "vacuum"
+    if material == "vacuum":
+        return "vacuum"
+    raise ValueError(f"Unsupported material: {material}")
 
 
 def _set_object_color(obj: Any, material: str) -> None:
@@ -56,7 +58,7 @@ def _format_design_value(value: float | str, units: str | None, default_units: s
         "box_count": len(plan.boxes),
         "variable_count": len(plan.variables),
     },
-)
+) # type: ignore
 def apply_parametric_geometry_plan(
     plan: ParametricGeometryPlan,
     project_path: Path,
@@ -81,29 +83,26 @@ def apply_parametric_geometry_plan(
         from ansys.aedt.core.modules.material_lib import Materials
         assert isinstance(app.modeler, Modeler3D)
         assert isinstance(app.materials, Materials)
-        
+
         modeler = app.modeler
         materials = app.materials
         modeler.model_units = plan.units_length
 
         mat_name = "vacuum"
         if core_material is not None:
-            try:
-                mat_name = _material_name(core_material)
-                if mat_name not in materials.material_keys:
-                    mat = materials.add_material(mat_name)
-                else:
-                    mat = materials[mat_name]
-                if not mat:
-                    raise RuntimeError("Material creation failed")
-                if core_material.mu_r != -1:
-                    mat.permeability = core_material.mu_r
-                if core_material.epsilon_r != -1:
-                    mat.permittivity = core_material.epsilon_r
-                if core_material.conductivity_s_per_m != -1:
-                    mat.conductivity = core_material.conductivity_s_per_m
-            except Exception:
-                mat_name = "vacuum"
+            mat_name = _material_name(core_material)
+            if mat_name not in materials.material_keys:
+                mat = materials.add_material(mat_name)
+            else:
+                mat = materials[mat_name]
+            if not mat:
+                raise RuntimeError("Material creation failed")
+            if core_material.mu_r != -1:
+                mat.permeability = core_material.mu_r
+            if core_material.epsilon_r != -1:
+                mat.permittivity = core_material.epsilon_r
+            if core_material.conductivity_s_per_m != -1:
+                mat.conductivity = core_material.conductivity_s_per_m
 
         for var in plan.variables:
             if var.is_expression:
@@ -119,15 +118,12 @@ def apply_parametric_geometry_plan(
         for box in plan.boxes:
             mat = _resolve_material_name(box.material, mat_name)
             if mat not in materials.material_keys:
-                try:
-                    materials.add_material(mat)
-                except Exception:
-                    mat = "vacuum"
+                materials.add_material(mat)
             obj = modeler.create_box(
                 list(box.corner_expr),
                 list(box.size_expr),
                 name=box.name,
-                matname=mat,
+                material=mat,
             )
             if obj:
                 _set_object_color(obj, box.material)

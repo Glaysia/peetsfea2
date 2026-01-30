@@ -27,6 +27,33 @@ from .spec_models import (
 
 DEFAULT_CORE_W_MM = 100.0
 DEFAULT_CORE_H_MM = 100.0
+VALID_INNER_PLANE_AXES = {"xy", "yz", "zx"}
+PCB_TOTAL_THK_MIN = 1.6
+PCB_TOTAL_THK_MAX = 1.7
+
+
+def _validate_tx_inner_pcb_spec(tx_pcb: PcbSpec, tx_coil: TxCoilSpec) -> None:
+    if tx_coil.inner_plane_axis not in VALID_INNER_PLANE_AXES:
+        raise SpecValidationError(
+            f"tx.coil.inner_plane_axis must be one of {sorted(VALID_INNER_PLANE_AXES)}, got {tx_coil.inner_plane_axis!r}"
+        )
+    if tx_coil.inner_pcb_count < 0:
+        raise SpecValidationError("tx.coil.inner_pcb_count must be >= 0")
+    if tx_coil.inner_pcb_count > tx_coil.max_inner_pcb_count:
+        raise SpecValidationError("tx.coil.inner_pcb_count must be <= tx.coil.max_inner_pcb_count")
+    required_len = tx_coil.inner_pcb_count + 1
+    if len(tx_coil.inner_spacing_ratio) < required_len:
+        raise SpecValidationError(
+            f"tx.coil.inner_spacing_ratio must have at least {required_len} entries, got {len(tx_coil.inner_spacing_ratio)}"
+        )
+    if sum(tx_coil.inner_spacing_ratio[:required_len]) <= 0:
+        raise SpecValidationError("tx.coil.inner_spacing_ratio sum must be > 0 for used entries")
+    if tx_pcb.layer_count != 2:
+        raise SpecValidationError("tx.pcb.layer_count must be 2 (fixed PCB spec)")
+    if not (PCB_TOTAL_THK_MIN <= tx_pcb.total_thickness_mm <= PCB_TOTAL_THK_MAX):
+        raise SpecValidationError(
+            f"tx.pcb.total_thickness_mm must be between {PCB_TOTAL_THK_MIN} and {PCB_TOTAL_THK_MAX}"
+        )
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -199,6 +226,7 @@ def parse_type1_spec_dict(data: dict[str, Any]) -> Type1Spec:
         inner_spacing_ratio=inner_spacing_ratio,
         outer_faces=tx_outer_faces,
     )
+    _validate_tx_inner_pcb_spec(tx_pcb, tx_coil)
     tx_module_data = _get_dict(tx_data, "module")
     tx_module = ModuleSpec(
         present=_as_bool(tx_module_data.get("present"), False),

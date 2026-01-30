@@ -71,7 +71,7 @@ def run_type1_from_path(path: Path, seed: int) -> Type1RunResult:
         "out_dir": str(kwargs.get("out_dir") or ""),
         "design_name": str(kwargs.get("design_name") or ""),
     },
-)
+) # type: ignore
 def run_type1_aedt_from_path(
     path: Path,
     seed: int,
