@@ -164,6 +164,8 @@ def interpret_type1(sample: Type1SampleInput) -> Type1Domain:
         materials_core=sample.materials_core,
         tx_module=sample.tx_module,
         tx_position=tx_position,
+        tx_pcb=sample.tx_pcb,
+        tx_coil=sample.tx_coil,
         rx_module=sample.rx_module,
         rx_position=rx_position,
         tv=TvSample(

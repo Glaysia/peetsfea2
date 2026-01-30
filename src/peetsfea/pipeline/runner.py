@@ -9,12 +9,13 @@ from peetsfea.domain.type1.interpreter import Type1Domain, interpret_type1
 from peetsfea.domain.type1.parse import parse_type1_spec_dict
 from peetsfea.domain.type1.sampled_models import Type1Sample
 from peetsfea.domain.type1.spec_models import Type1Spec
-from peetsfea.geometry.plan import GeometryPlan, ParametricGeometryPlan
-from peetsfea.geometry.type1.builder import build_type1_geometry, build_type1_parametric_geometry
+from peetsfea.geometry.plan import ParametricGeometryPlan
+from peetsfea.geometry.type1.builder import build_type1_parametric_geometry
+from peetsfea.logging_utils import log_action
 from peetsfea.sampling.type1_sampler import sample_type1
 from peetsfea.spec.io import load_toml
 
-PEETSFEA_VERSION = "3"
+PEETSFEA_VERSION = "2.0.0"
 
 
 @dataclass(frozen=True)
@@ -22,7 +23,7 @@ class Type1RunResult:
     spec: Type1Spec
     domain: Type1Domain
     sample: Type1Sample
-    geometry: GeometryPlan
+    geometry: ParametricGeometryPlan
 
 
 @dataclass(frozen=True)
@@ -41,10 +42,11 @@ def build_project_name(base_name: str, spec_path: Path, seed: int, version: str 
     return f"{base_name}_{suffix}"
 
 
+@log_action("run_type1", lambda spec, seed: {"seed": seed})
 def run_type1(spec: Type1Spec, seed: int) -> Type1RunResult:
     sample_input = sample_type1(spec, seed)
     domain = interpret_type1(sample_input)
-    geometry = build_type1_geometry(domain.sample)
+    geometry = build_type1_parametric_geometry(domain.sample)
     return Type1RunResult(
         spec=spec,
         domain=domain,
@@ -53,12 +55,23 @@ def run_type1(spec: Type1Spec, seed: int) -> Type1RunResult:
     )
 
 
+@log_action("run_type1_from_path", lambda path, seed: {"spec_path": str(path), "seed": seed})
 def run_type1_from_path(path: Path, seed: int) -> Type1RunResult:
     spec_dict = load_toml(path)
     spec = parse_type1_spec_dict(spec_dict)
     return run_type1(spec, seed)
 
 
+@log_action(
+    "run_type1_aedt_from_path",
+    lambda path, seed, project_name, **kwargs: {
+        "spec_path": str(path),
+        "seed": seed,
+        "project_name": project_name,
+        "out_dir": str(kwargs.get("out_dir") or ""),
+        "design_name": str(kwargs.get("design_name") or ""),
+    },
+)
 def run_type1_aedt_from_path(
     path: Path,
     seed: int,
@@ -75,7 +88,7 @@ def run_type1_aedt_from_path(
     project_path = out_dir / f"{full_name}.aedt"
     design_name = design_name or full_name
 
-    plan: ParametricGeometryPlan = build_type1_parametric_geometry(result.sample)
+    plan: ParametricGeometryPlan = result.geometry
     apply_parametric_geometry_plan(
         plan,
         project_path=project_path,

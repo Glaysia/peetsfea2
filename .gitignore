@@ -69,3 +69,5 @@ Thumbs.db
 batch.log
 
 codex*/*
+
+tmp/*

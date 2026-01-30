@@ -74,9 +74,9 @@ conductivity_s_per_m = [0.001, 0.02, 0.001] # electrical conductivity
 
 [tx.module]
 present = true # whether TX core is present
-outer_w_mm = [200.0, 400.0, 10.0] # TX core outer width (rectangular)
+outer_w_mm = [200.0, 800.0, 10.0] # TX core outer width (rectangular)
 outer_h_mm = [200.0, 400.0, 10.0] # TX core outer height (rectangular)
-thickness_mm = [4.0, 120.0, 1.0] # TX core thickness (X length)
+thickness_mm = [10.0, 200.0, 1.0] # TX core thickness (X length)
 offset_from_coil_mm = [0.0, 3.0, 0.5] # TX core offset from coil
 model = false # non-model geometry
 
@@ -85,6 +85,75 @@ model = false # non-model geometry
 center_x_mm = [0.0, 0.0, 0.0] # TX center X
 center_y_mm = [0.0, 0.0, 0.0] # TX center Y
 center_z_mm = [120.0, 560.0, 10.0] # TX center Z (between floor and TV bottom)
+
+[tx.pcb]
+# 2-layer PCB trace coil (rigid). All dielectrics are FR4.
+# 전체 PCB는 6면을 감싸는 코일 형상을 위해 사용됨(실제 코일 정의는 [tx.coil]).
+# 두께 합계는 stackup의 모든 두께 합과 일치해야 함.
+layer_count = 2 # 1 or 2; if 1, inner copper is omitted
+total_thickness_mm = 1.7
+dielectric_material = "FR4"
+dielectric_epsilon_r = 4.2
+
+# Stackup: top -> bottom
+[[tx.pcb.stackup]]
+kind = "dielectric"
+material = "FR4"
+thickness_mm = 0.04
+epsilon_r = 4.2
+
+[[tx.pcb.stackup]]
+kind = "conductor"
+material = "Cu"
+# plating ignored
+copper_thickness_mm = 0.04
+
+[[tx.pcb.stackup]]
+kind = "dielectric"
+material = "FR4"
+thickness_mm = 1.54
+epsilon_r = 4.2
+
+[[tx.pcb.stackup]]
+kind = "conductor"
+material = "Cu"
+# plating ignored
+copper_thickness_mm = 0.04
+
+[[tx.pcb.stackup]]
+kind = "dielectric"
+material = "FR4"
+thickness_mm = 0.04
+epsilon_r = 4.2
+
+[tx.coil]
+# tx.coil은 "PCB 트레이스로 만든 3축(또는 부분) 감김 코일"을 정의.
+# 외곽(6면) PCB + 내부 PCB N장을 포함할 수 있음.
+type = "pcb_trace"
+# 실제 코일이 사용한 레이어 수(2층 기준). PCB의 layer_count와 동일 권장.
+trace_layer_count = 2 # keep in sync with tx.pcb.layer_count
+# 내부 PCB는 하나의 평면 축만 선택.
+# "xy" / "yz" / "zx" 중 하나. 기본은 "yz".
+inner_plane_axis = "yz"
+# 내부 PCB 최대 개수. 학습을 위한 고정 길이 벡터 기준값.
+max_inner_pcb_count = 8
+# 실제 내부 PCB 개수. 0이면 외곽만 존재.
+inner_pcb_count = 2
+# 간격 비율 벡터: 길이는 (max_inner_pcb_count + 1).
+# 실제로 사용하는 간격 개수는 (inner_pcb_count + 1).
+# 예) inner_pcb_count=0 -> 간격 1개만 사용(첫 원소).
+# 예) inner_pcb_count=2 -> 간격 3개 사용(첫 3개 원소).
+# 비율은 양수/0 가능, 나중에 합으로 정규화하여 실제 거리로 변환.
+inner_spacing_ratio = [1, 1, 1, 0, 0, 0, 0, 0, 0]
+
+# 외곽 6면 각각의 존재 여부(모두 false면 외곽 PCB 없음).
+[tx.coil.outer_faces]
+pos_x = true
+neg_x = true
+pos_y = true
+neg_y = true
+pos_z = true
+neg_z = true
 
 [rx.module]
 present = true # whether RX core is present

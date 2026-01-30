@@ -11,11 +11,14 @@ from .spec_models import (
     MaterialCoreSpec,
     MaterialsSpec,
     ModuleSpec,
+    PcbSpec,
     PositionSpec,
     RangeSpec,
     RxSpec,
     RxStackSpec,
     TvSpec,
+    TxCoilOuterFacesSpec,
+    TxCoilSpec,
     TxSpec,
     Type1Spec,
     UnitsSpec,
@@ -39,6 +42,15 @@ def _as_float(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError) as exc:
         raise SpecValidationError(f"Expected numeric value, got {value!r}") from exc
+
+
+def _as_int(value: Any, default: int) -> int:
+    if value is None:
+        return int(default)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise SpecValidationError(f"Expected integer value, got {value!r}") from exc
 
 
 def _range_from_value(value: Any, default: Any) -> RangeSpec:
@@ -140,6 +152,53 @@ def parse_type1_spec_dict(data: dict[str, Any]) -> Type1Spec:
     )
 
     tx_data = _get_dict(data, "tx")
+    tx_pcb_data = _get_dict(tx_data, "pcb")
+    raw_stackup = tx_pcb_data.get("stackup")
+    if raw_stackup is None:
+        stackup: tuple[dict[str, Any], ...] = ()
+    elif isinstance(raw_stackup, list):
+        stack_items: list[dict[str, Any]] = []
+        for item in raw_stackup:
+            if not isinstance(item, dict):
+                raise SpecValidationError("Expected table entries for tx.pcb.stackup")
+            stack_items.append(item)
+        stackup = tuple(stack_items)
+    else:
+        raise SpecValidationError("Expected list for tx.pcb.stackup")
+    tx_pcb = PcbSpec(
+        layer_count=_as_int(tx_pcb_data.get("layer_count"), 2),
+        total_thickness_mm=_as_float(tx_pcb_data.get("total_thickness_mm"), 0.0),
+        dielectric_material=str(tx_pcb_data.get("dielectric_material", "FR4")),
+        dielectric_epsilon_r=_as_float(tx_pcb_data.get("dielectric_epsilon_r"), 0.0),
+        stackup=stackup,
+    )
+    tx_coil_data = _get_dict(tx_data, "coil")
+    outer_faces_data = _get_dict(tx_coil_data, "outer_faces")
+    tx_outer_faces = TxCoilOuterFacesSpec(
+        pos_x=_as_bool(outer_faces_data.get("pos_x"), True),
+        neg_x=_as_bool(outer_faces_data.get("neg_x"), True),
+        pos_y=_as_bool(outer_faces_data.get("pos_y"), True),
+        neg_y=_as_bool(outer_faces_data.get("neg_y"), True),
+        pos_z=_as_bool(outer_faces_data.get("pos_z"), True),
+        neg_z=_as_bool(outer_faces_data.get("neg_z"), True),
+    )
+    raw_inner_spacing = tx_coil_data.get("inner_spacing_ratio")
+    if raw_inner_spacing is None:
+        inner_spacing_ratio: tuple[float, ...] = ()
+    elif isinstance(raw_inner_spacing, list):
+        inner_spacing_ratio = tuple(_as_float(value, 0.0) for value in raw_inner_spacing)
+    else:
+        raise SpecValidationError("Expected list for tx.coil.inner_spacing_ratio")
+    trace_layer_default = tx_pcb.layer_count if tx_pcb.layer_count > 0 else 0
+    tx_coil = TxCoilSpec(
+        type=str(tx_coil_data.get("type", "pcb_trace")),
+        trace_layer_count=_as_int(tx_coil_data.get("trace_layer_count"), trace_layer_default),
+        inner_plane_axis=str(tx_coil_data.get("inner_plane_axis", "yz")),
+        max_inner_pcb_count=_as_int(tx_coil_data.get("max_inner_pcb_count"), 0),
+        inner_pcb_count=_as_int(tx_coil_data.get("inner_pcb_count"), 0),
+        inner_spacing_ratio=inner_spacing_ratio,
+        outer_faces=tx_outer_faces,
+    )
     tx_module_data = _get_dict(tx_data, "module")
     tx_module = ModuleSpec(
         present=_as_bool(tx_module_data.get("present"), False),
@@ -155,7 +214,7 @@ def parse_type1_spec_dict(data: dict[str, Any]) -> Type1Spec:
         "center_z_mm": [0.0, 0.0, 0.0],
     }
     tx_position = _parse_position(_get_dict(tx_data, "position"), tx_position_defaults)
-    tx = TxSpec(module=tx_module, position=tx_position)
+    tx = TxSpec(module=tx_module, position=tx_position, pcb=tx_pcb, coil=tx_coil)
 
     rx_data = _get_dict(data, "rx")
     rx_module_data = _get_dict(rx_data, "module")

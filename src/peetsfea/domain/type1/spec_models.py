@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass(frozen=True)
@@ -64,9 +64,41 @@ class ModuleSpec:
 
 
 @dataclass(frozen=True)
+class PcbSpec:
+    layer_count: int
+    total_thickness_mm: float
+    dielectric_material: str
+    dielectric_epsilon_r: float
+    stackup: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class TxCoilOuterFacesSpec:
+    pos_x: bool
+    neg_x: bool
+    pos_y: bool
+    neg_y: bool
+    pos_z: bool
+    neg_z: bool
+
+
+@dataclass(frozen=True)
+class TxCoilSpec:
+    type: str
+    trace_layer_count: int
+    inner_plane_axis: str
+    max_inner_pcb_count: int
+    inner_pcb_count: int
+    inner_spacing_ratio: tuple[float, ...]
+    outer_faces: TxCoilOuterFacesSpec
+
+
+@dataclass(frozen=True)
 class TxSpec:
     module: ModuleSpec
     position: PositionSpec
+    pcb: PcbSpec
+    coil: TxCoilSpec
 
 
 @dataclass(frozen=True)

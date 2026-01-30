@@ -25,3 +25,6 @@ enabled = true
 - 기본 가상환경: `/home/harry/Projects/PythonProjects/.venv`
 - 설치: `uv pip install -e /home/harry/Projects/PythonProjects/peetsfea2`
 - 실행 시에는 위 venv의 python을 사용한다.
+
+## Pyright 주석 규칙
+- Sympy 연산에는 모두 `# pyright: ignore[reportOperatorIssue]`를 붙인다.

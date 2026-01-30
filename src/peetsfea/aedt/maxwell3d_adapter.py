@@ -6,6 +6,7 @@ from typing import Any
 
 from peetsfea.domain.type1.sampled_models import MaterialSample
 from peetsfea.geometry.plan import DesignVariable, ParametricGeometryPlan
+from peetsfea.logging_utils import log_action
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,26 @@ def _material_name(core: MaterialSample) -> str:
     return "CoreMaterial"
 
 
+def _resolve_material_name(material: str, core_name: str) -> str:
+    if material == "core":
+        return core_name
+    if material == "copper":
+        return "copper"
+    if material == "fr4":
+        return "FR4_epoxy"
+    return "vacuum"
+
+
+def _set_object_color(obj: Any, material: str) -> None:
+    try:
+        if material == "copper":
+            obj.color = (184, 115, 51)
+        elif material == "fr4":
+            obj.color = (30, 110, 30)
+    except Exception:
+        return
+
+
 def _format_design_value(value: float | str, units: str | None, default_units: str) -> str:
     if isinstance(value, str):
         return value
@@ -27,6 +48,15 @@ def _format_design_value(value: float | str, units: str | None, default_units: s
     return f"{value}{use_units}"
 
 
+@log_action(
+    "apply_parametric_geometry_plan",
+    lambda plan, project_path, design_name, **kwargs: {
+        "project_path": str(project_path),
+        "design_name": design_name,
+        "box_count": len(plan.boxes),
+        "variable_count": len(plan.variables),
+    },
+)
 def apply_parametric_geometry_plan(
     plan: ParametricGeometryPlan,
     project_path: Path,
@@ -87,7 +117,12 @@ def apply_parametric_geometry_plan(
             app[var.name] = expr
 
         for box in plan.boxes:
-            mat = mat_name if box.material == "core" else "vacuum"
+            mat = _resolve_material_name(box.material, mat_name)
+            if mat not in materials.material_keys:
+                try:
+                    materials.add_material(mat)
+                except Exception:
+                    mat = "vacuum"
             obj = modeler.create_box(
                 list(box.corner_expr),
                 list(box.size_expr),
@@ -95,6 +130,7 @@ def apply_parametric_geometry_plan(
                 matname=mat,
             )
             if obj:
+                _set_object_color(obj, box.material)
                 try:
                     modeler.set_object_model_state([obj.name], model=box.model)
                 except Exception:

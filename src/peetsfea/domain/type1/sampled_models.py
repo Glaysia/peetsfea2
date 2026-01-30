@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,36 @@ class ModuleSample:
     outer_h_mm: float
     thickness_mm: float
     offset_from_coil_mm: float
+
+
+@dataclass(frozen=True)
+class PcbSample:
+    layer_count: int
+    total_thickness_mm: float
+    dielectric_material: str
+    dielectric_epsilon_r: float
+    stackup: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class TxCoilOuterFacesSample:
+    pos_x: bool
+    neg_x: bool
+    pos_y: bool
+    neg_y: bool
+    pos_z: bool
+    neg_z: bool
+
+
+@dataclass(frozen=True)
+class TxCoilSample:
+    type: str
+    trace_layer_count: int
+    inner_plane_axis: str
+    max_inner_pcb_count: int
+    inner_pcb_count: int
+    inner_spacing_ratio: tuple[float, ...]
+    outer_faces: TxCoilOuterFacesSample
 
 
 @dataclass(frozen=True)
@@ -107,6 +137,8 @@ class Type1SampleInput:
     materials_core: MaterialSample
     tx_module: ModuleSample
     tx_position: PositionSample
+    tx_pcb: PcbSample
+    tx_coil: TxCoilSample
     rx_module: ModuleSample
     rx_position: PositionSample
     tv: TvSampleMaybe
@@ -126,6 +158,8 @@ class Type1Sample:
     materials_core: MaterialSample
     tx_module: ModuleSample
     tx_position: PositionSample
+    tx_pcb: PcbSample
+    tx_coil: TxCoilSample
     rx_module: ModuleSample
     rx_position: PositionSample
     tv: TvSample

@@ -10,7 +10,8 @@ dependencies = [
   "dearpygui>=2.1.1",
   "cadquery>=2.6.1",
   "sympy>=1.14.0",
-  "pyvista>=0.46.5"
+  "pyvista>=0.46.5",
+  "structlog>=22.9.0",
 ]
 
 [project.optional-dependencies]

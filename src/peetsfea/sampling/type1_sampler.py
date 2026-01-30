@@ -6,9 +6,12 @@ from peetsfea.domain.type1.sampled_models import (
     FloorSampleMaybe,
     MaterialSample,
     ModuleSample,
+    PcbSample,
     PositionSample,
     PositionSampleMaybe,
     TvSampleMaybe,
+    TxCoilOuterFacesSample,
+    TxCoilSample,
     Type1SampleInput,
     WallSampleMaybe,
 )
@@ -70,6 +73,31 @@ def sample_type1(spec: Type1Spec, seed: int) -> Type1SampleInput:
     tx_position = _sample_position(rng, spec.tx.position)
     rx_position = _sample_position(rng, spec.rx.position)
 
+    tx_pcb = PcbSample(
+        layer_count=spec.tx.pcb.layer_count,
+        total_thickness_mm=spec.tx.pcb.total_thickness_mm,
+        dielectric_material=spec.tx.pcb.dielectric_material,
+        dielectric_epsilon_r=spec.tx.pcb.dielectric_epsilon_r,
+        stackup=spec.tx.pcb.stackup,
+    )
+
+    tx_coil = TxCoilSample(
+        type=spec.tx.coil.type,
+        trace_layer_count=spec.tx.coil.trace_layer_count,
+        inner_plane_axis=spec.tx.coil.inner_plane_axis,
+        max_inner_pcb_count=spec.tx.coil.max_inner_pcb_count,
+        inner_pcb_count=spec.tx.coil.inner_pcb_count,
+        inner_spacing_ratio=spec.tx.coil.inner_spacing_ratio,
+        outer_faces=TxCoilOuterFacesSample(
+            pos_x=spec.tx.coil.outer_faces.pos_x,
+            neg_x=spec.tx.coil.outer_faces.neg_x,
+            pos_y=spec.tx.coil.outer_faces.pos_y,
+            neg_y=spec.tx.coil.outer_faces.neg_y,
+            pos_z=spec.tx.coil.outer_faces.pos_z,
+            neg_z=spec.tx.coil.outer_faces.neg_z,
+        ),
+    )
+
     tv = TvSampleMaybe(
         present=spec.tv.present,
         model=spec.tv.model,
@@ -108,6 +136,8 @@ def sample_type1(spec: Type1Spec, seed: int) -> Type1SampleInput:
         materials_core=materials_core,
         tx_module=tx_module,
         tx_position=tx_position,
+        tx_pcb=tx_pcb,
+        tx_coil=tx_coil,
         rx_module=rx_module,
         rx_position=rx_position,
         tv=tv,
