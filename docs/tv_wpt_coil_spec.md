@@ -1,186 +1,127 @@
-# tv_wpt_coil 스펙/입력 형식 정리
+# Type1 TOML 스펙(현행 구현 반영)
 
-이 문서는 `/home/harry/Projects/PythonProjects/tv_wpt_coil/type1/type1.toml` 및 `/home/harry/Projects/PythonProjects/tv_wpt_coil/lock/non_model.toml` 샘플을 기준으로 **입력 스펙 구조**, **필수값/기본값/파생값 후보**를 정리한 것입니다.
+이 문서는 `examples/type1.toml` 및 현재 구현(`src/peetsfea/domain/type1/parse.py`, `.../interpreter.py`)을 기준으로, **Type1 입력 스펙 구조**와 **파생/제약/코일 유전자(tx.coil)** 를 정리한다.
 
-## 1) 입력 형식 요약 (샘플 TOML 기준)
+---
 
-- 최상위 섹션
-  - `units`
-  - `coordinate_system`
-  - `constraints`
-  - `layout`
-  - `tv`, `wall`, `floor`
-  - `materials.core`
-  - `tx.module`, `tx.position`
-  - `rx.module`, `rx.position`, `rx.stack`
-- 값 타입
-  - 단일 스칼라 (예: `units.length = "mm"`)
-  - 범위형 샘플링 배열 `[min, max, step]` (예: `tx.module.outer_w_mm = [200, 400, 10]`)
-  - 불리언 (예: `tv.present = true`)
-  - 문자열 (예: `tv.aspect_ratio = "16:9"`)
+## 1) 값 표현/샘플링 규칙
 
-## 2) 필수값 · 기본값 · 파생값 후보 표
+대부분의 수치 필드는 아래 형태를 모두 허용한다:
+- 스칼라: `foo = 12.3` → 고정값
+- 범위: `foo = [min, max, step]`
+  - `step=0` 또는 `min=max`면 고정값으로 취급
 
-아래 표는 **샘플 TOML/문서에서 나타난 값**을 기준으로 정리한 것이며,
-실제 구현에서는 규칙 확정 필요(별도 표기).
+정수 범위도 동일하게 `[min, max, step]`를 사용한다.
 
-### 2.1 공통/좌표계/제약
+---
 
-| 경로 | 타입 | 필수? | 기본값 후보 | 파생? | 비고 |
-| --- | --- | --- | --- | --- | --- |
-| units.length | str | 필수 | "mm" | - | 현재 샘플은 mm 고정 |
-| coordinate_system.wall_plane_x_mm | float 또는 [min,max,step] | 필수 | 0.0 | - | type1.toml은 배열, non_model.toml은 스칼라 |
-| coordinate_system.floor_plane_z_mm | float 또는 [min,max,step] | 필수 | 0.0 | - | 동일 |
-| constraints.core_core_gap_mm | [min,max,step] | 필수 | 100.0 | - | TX-RX edge-to-edge 간격 |
-| constraints.rx_total_thickness_mm_max | [min,max,step] | 필수 | 4.0 | - | RX 총 두께 상한 |
-| constraints.tx_gap_from_tv_bottom_mm | [min,max,step] | 필수 | 100.0 | - | TX top이 TV bottom에서 떨어진 거리 |
-| layout.right_edge_y_mm | [min,max,step] | 선택 | 0.0 | - | 현재 unused |
+## 2) 최상위 섹션 구조
 
-### 2.2 TV/Wall/Floor (비모델)
+- `units`
+- `coordinate_system`
+- `constraints`
+- `layout`
+- `materials.core`
+- `tv`, `wall`, `floor`
+- `tx.module`, `tx.position`, `tx.pcb`, `tx.coil`
+- `rx.module`, `rx.position`, `rx.stack`
 
-| 경로 | 타입 | 필수? | 기본값 후보 | 파생? | 비고 |
-| --- | --- | --- | --- | --- | --- |
-| tv.present | bool | 선택 | true | - | non_model에서도 동일 의미 |
-| tv.screen_diag_in | float | 필수 | 83.0 | - | 샘플 고정 |
-| tv.aspect_ratio | str | 필수 | "16:9" | - | 파생 시 width/height 계산 필요 |
-| tv.width_mm | float | 선택 | 파생 | 예 | screen_diag_in + aspect_ratio로 계산 |
-| tv.height_mm | float | 선택 | 파생 | 예 | 동일 |
-| tv.thickness_mm | float | 필수 | 9.0 | - | 샘플 고정 |
-| tv.model | bool | 선택 | false | - | 비모델 표시 |
-| tv.position.center_x_mm | float | 선택 | tv.thickness_mm/2 | 예 | wall_plane_x 기준 (flush) |
-| tv.position.center_y_mm | float | 선택 | 0.0 | - | 샘플 0.0 |
-| tv.position.center_z_mm | float | 필수 | 1200.0 | - | 샘플 고정 |
-| wall.present | bool | 선택 | true | - |  |
-| wall.thickness_mm | float | 선택 | 100.0 | - |  |
-| wall.size_y_mm | float | 선택 | 4000.0 | - |  |
-| wall.size_z_mm | float | 선택 | 3000.0 | - |  |
-| wall.model | bool | 선택 | false | - |  |
-| wall.position.center_x_mm | float | 선택 | -wall.thickness_mm/2 | 예 | wall_plane_x 기준 |
-| wall.position.center_y_mm | float | 선택 | 0.0 | - |  |
-| wall.position.center_z_mm | float | 선택 | wall.size_z_mm/2 | 예 | floor_plane_z 기준 |
-| floor.present | bool | 선택 | true | - |  |
-| floor.thickness_mm | float | 선택 | 100.0 | - |  |
-| floor.size_x_mm | float | 선택 | 3000.0 | - |  |
-| floor.size_y_mm | float | 선택 | 4000.0 | - |  |
-| floor.model | bool | 선택 | false | - |  |
-| floor.position.center_x_mm | float | 선택 | floor.size_x_mm/2 | 예 | wall_plane_x 기준 |
-| floor.position.center_y_mm | float | 선택 | 0.0 | - |  |
-| floor.position.center_z_mm | float | 선택 | -floor.thickness_mm/2 | 예 | floor_plane_z 기준 |
+> 주의: TOML에 추가 키가 있어도 parser가 강제 에러를 내지 않으며, “현재 코드가 읽는 키”만 사용된다.
 
-### 2.3 재료
+---
 
-| 경로 | 타입 | 필수? | 기본값 후보 | 파생? | 비고 |
-| --- | --- | --- | --- | --- | --- |
-| materials.core.mu_r | [min,max,step] | 필수 | 800.0~2000.0 | - | 상대 투자율 범위 |
-| materials.core.epsilon_r | [min,max,step] | 필수 | 10.0~15.0 | - | 상대 유전율 |
-| materials.core.conductivity_s_per_m | [min,max,step] | 필수 | 0.001~0.02 | - | 전도도 |
+## 3) 위치/제약 파생 규칙(현재 interpreter 동작)
 
-### 2.4 TX
+### 3.1 TV/Wall/Floor position 기본값
+- `tv.position.center_x_mm` 미지정 시: `wall_plane_x + tv.thickness_mm/2` (TV back이 벽면에 flush)
+- `wall.position.center_x_mm` 미지정 시: `wall_plane_x - wall.thickness_mm/2`
+- `floor.position.center_z_mm` 미지정 시: `floor_plane_z - floor.thickness_mm/2`
 
-| 경로 | 타입 | 필수? | 기본값 후보 | 파생? | 비고 |
-| --- | --- | --- | --- | --- | --- |
-| tx.module.present | bool | 선택 | true | - |  |
-| tx.module.outer_w_mm | [min,max,step] | 필수 | 200~400 | - |  |
-| tx.module.outer_h_mm | [min,max,step] | 필수 | 200~400 | - |  |
-| tx.module.thickness_mm | [min,max,step] | 필수 | 4~120 | - |  |
-| tx.module.offset_from_coil_mm | [min,max,step] | 선택 | 0~3 | - |  |
-| tx.module.model | bool | 선택 | false | - | 비모델 |
-| tx.position.center_x_mm | [min,max,step] | 선택 | 0.0 | - |  |
-| tx.position.center_y_mm | [min,max,step] | 선택 | 0.0 | - |  |
-| tx.position.center_z_mm | [min,max,step] | 필수 | 120~560 | - |  |
+### 3.2 TV가 present일 때 TX/RX 위치 강제 정렬
+- `tx.position.center_y_mm`와 `rx.position.center_y_mm`는 TV의 `center_y_mm`로 강제
+- TX Z:
+  - `tx_center_z = tv_bottom_z - tx_gap_from_tv_bottom_mm - tx_core_h/2`
+- RX Z:
+  - `rx_center_z = tx_center_z + tx_core_h/2 + core_core_gap_mm + rx_core_h/2`
 
-### 2.5 RX
-
-| 경로 | 타입 | 필수? | 기본값 후보 | 파생? | 비고 |
-| --- | --- | --- | --- | --- | --- |
-| rx.module.present | bool | 선택 | true | - |  |
-| rx.module.outer_w_mm | [min,max,step] | 필수 | 140~1653.71 | - | TV 폭 90% 이하 제한 반영 |
-| rx.module.outer_h_mm | [min,max,step] | 필수 | 140~930.21 | - | TV 높이 90% 이하 |
-| rx.module.thickness_mm | [min,max,step] | 필수 | 2~4 | - | constraints.rx_total_thickness_mm_max와 연계 |
-| rx.module.offset_from_coil_mm | [min,max,step] | 선택 | 0~1 | - |  |
-| rx.module.model | bool | 선택 | false | - |  |
-| rx.position.center_x_mm | [min,max,step] | 선택 | 0.0 | - |  |
-| rx.position.center_y_mm | [min,max,step] | 선택 | 0.0 | - |  |
-| rx.position.center_z_mm | [min,max,step] | 필수 | 600~700 | - |  |
-| rx.stack.total_thickness_mm | [min,max,step] | 필수 | 2.5~4.0 | - | constraints.rx_total_thickness_mm_max 이하 |
-
-## 3) 파생값 규칙(샘플에서 암시된 부분)
-
-- TV 폭/높이 파생
-  - `tv.width_mm`, `tv.height_mm`는 `tv.screen_diag_in`과 `tv.aspect_ratio`로 계산 가능
-- TV 위치
-  - `tv.position.center_x_mm`는 TV back이 벽면(`wall_plane_x`)에 flush일 때 `tv.thickness_mm/2`
-- Wall 위치
-  - `wall.position.center_x_mm = wall_plane_x - wall.thickness_mm/2`
-  - `wall.position.center_z_mm = floor_plane_z + wall.size_z_mm/2`
-- Floor 위치
-  - `floor.position.center_z_mm = floor_plane_z - floor.thickness_mm/2`
-  - `floor.position.center_x_mm = wall_plane_x + floor.size_x_mm/2`
-- RX/TX 상대 위치(제약)
-  - RX는 TX보다 +Z 방향으로 `constraints.core_core_gap_mm` 만큼 (edge-to-edge) 배치 필요
-  - RX 총 스택 두께 `rx.stack.total_thickness_mm`는 `constraints.rx_total_thickness_mm_max` 이하
-- RX 크기 제한
+### 3.3 RX 크기 제약(현재 domain validation)
+- TV가 present일 때:
   - `rx.module.outer_w_mm <= 0.9 * tv.width_mm`
   - `rx.module.outer_h_mm <= 0.9 * tv.height_mm`
 
-## 4) 스펙 경로(dot-notation) 후보
+---
 
-현재 샘플에서 일관성 있게 사용할 수 있는 경로 후보를 다음과 같이 제안합니다.
+## 4) `tx.pcb` (입력은 받지만, 현재 geometry에 부분 반영)
 
-### 4.1 공통
-- `units.length`
-- `coordinate_system.wall_plane_x_mm`
-- `coordinate_system.floor_plane_z_mm`
-- `constraints.core_core_gap_mm`
-- `constraints.rx_total_thickness_mm_max`
-- `constraints.tx_gap_from_tv_bottom_mm`
-- `layout.right_edge_y_mm`
+필드(현행):
+- `layer_count`: 1 또는 2
+- `total_thickness_mm`
+- `dielectric_material`, `dielectric_epsilon_r`
+- `[[tx.pcb.stackup]]` (dict list로 그대로 보존)
 
-### 4.2 비모델(공통 prefix 유지)
+현재 구현에서는 coil 3D 생성이 “box-strip” 기반이며, stackup dict를 정밀하게 사용하지는 않는다(향후 확장 지점).
 
-옵션 A: 현행 구조 유지 (type1.toml 기준)
-- `tv.*`, `wall.*`, `floor.*`
+---
 
-옵션 B: non_model prefix 도입 (non_model.toml 기준)
-- `non_model.tv.*`, `non_model.wall.*`, `non_model.floor.*`
+## 5) `tx.coil` (필수) — `schema="instances_v1"`
 
-권장: **Option B** (비모델 객체 묶음 명시)
+`tx.coil.schema`는 반드시 `"instances_v1"` 이어야 한다(레거시/하위호환 없음).
 
-### 4.3 TX/RX
-- `tx.module.present`
-- `tx.module.outer_w_mm`
-- `tx.module.outer_h_mm`
-- `tx.module.thickness_mm`
-- `tx.module.offset_from_coil_mm`
-- `tx.module.model`
-- `tx.position.center_x_mm`
-- `tx.position.center_y_mm`
-- `tx.position.center_z_mm`
+### 5.1 기본 필드
+- `type`: 현재 `"pcb_trace"` 사용
+- `pattern`: 현재 `"spiral"` 사용
 
-- `rx.module.present`
-- `rx.module.outer_w_mm`
-- `rx.module.outer_h_mm`
-- `rx.module.thickness_mm`
-- `rx.module.offset_from_coil_mm`
-- `rx.module.model`
-- `rx.position.center_x_mm`
-- `rx.position.center_y_mm`
-- `rx.position.center_z_mm`
-- `rx.stack.total_thickness_mm`
+### 5.2 제조/제약(유전자 범위)
+- `min_trace_width_mm`: 예) `[0.2, 0.2, 0.0]`
+- `min_trace_gap_mm`
+- `edge_clearance_mm`
+- `fill_scale`: (0,1] 범위 권장
+- `pitch_duty`: >0 권장 (width = pitch_duty * pitch)
 
-## 5) 향후 검증 규칙 (문서화만, 코드 미구현)
-아래는 **TOML을 읽을 때 non_model 범위 유효성을 검사해야 한다는 요구사항**을 기록한 항목이다.
-추후 구현 시에는 `min/max` 샘플링 범위 기준으로 **최솟값/최댓값 모두 유효한지** 확인해야 한다.
+### 5.3 2-layer 분배(겹침 최소화)
+- `trace_layer_count`: 1 또는 2
+  - 실제 사용 레이어 수는 `min(tx.pcb.layer_count, trace_layer_count)`
+  - 1이면 `layer_mode_idx`는 강제로 0(single-layer)로 처리
+- `layer_mode_idx`: `[0,2,1]` 같은 정수 범위
+  - 0 = single_layer_top
+  - 1 = radial_split
+  - 2 = alternate_turns
+- `radial_split_top_turn_fraction`: [0,1]
+- `radial_split_outer_is_top`: 0/1
 
-- non_model 범위 유효성 (TV/Wall/Floor 기반)
-  - RX가 TV 내부에 들어오는지 검사: RX 모듈(또는 stack)의 **외곽 상자**가 TV 외곽 상자 안에 들어오는지 확인.
-  - TX가 TV와 바닥 사이에 있는지 검사: TX 모듈의 상단이 TV 하단보다 낮고, 하단이 바닥보다 높도록 확인.
-  - 샘플링 범위의 **최댓값이 과도하게 크지 않은지** 검사: 예) RX 외곽 치수 ≤ TV 폭/높이, TX 외곽 치수 ≤ TV-바닥 사이 여유 공간, Z 범위가 non_model 범위를 벗어나지 않는지 등.
-- 코일 범위 유효성 (향후)
-  - 코일 파라미터의 **최댓값에서 만들어지는 코일 형상**이 해당 TX/RX 모듈 범위 안에 들어오는지 확인.
-  - 코일 외곽이 non_model 범위(특히 TV 내부/바닥 위)를 벗어나지 않는지 확인.
+### 5.4 Spiral / DD(dual-spiral)
+- `max_spiral_count`: 현재 구현에서 2로 고정
+- `spiral_count`: 1 또는 2
+- `spiral_turns`: 길이 2의 int-range vector
+- `spiral_direction_idx`: 길이 2의 int-range vector
+  - 0 = CW, 1 = CCW
+- `spiral_start_edge_idx`: 길이 2의 int-range vector
+  - plane 기준 edge index:
+    - 0 = +u, 1 = -u, 2 = +v, 3 = -v
+- `dd_split_axis_idx`: 0(u split) / 1(v split)
+- `dd_gap_mm`
+- `dd_split_ratio`: (0,1)
 
-## 6) 다음 단계 제안
-- 샘플 TOML을 스키마로 확정하며 **필수/선택** 및 **파생 규칙**을 코드로 반영.
-- `non_model` prefix 채택 여부 확정 후 경로 통일.
-- constraints 기반 파생(예: TX-RX 간격, RX 크기 상한) 규칙을 공식화.
+### 5.5 구조(향후 확장용, 현재 geometry에는 미반영)
+아래 필드들은 현재 **샘플링/저장까지는 되지만**, 3D coil 생성에는 아직 사용하지 않는다:
+- `inner_plane_axis_idx` (0=yz, 1=zx, 2=xy)
+- `inner_pcb_count`
+- `inner_spacing_ratio_half` (좌우 대칭 벡터)
+- `max_inner_pcb_count`
+
+### 5.6 인스턴스(멀티 face)
+`[[tx.coil.instances]]`는 “코일 인스턴스 목록”이며, 각 인스턴스가 어떤 face에 코일을 만들지 정의한다.
+- 필드:
+  - `name`: 식별자(문자/숫자/언더스코어). 미지정 시 자동 생성.
+  - `face`: `"pos_x" | "neg_x" | "pos_y" | "neg_y" | "pos_z" | "neg_z"`
+  - `present`: 0/1 int-range (예: `[1,1,0]`)
+- 파이프라인은 `present=1`인 인스턴스 각각에 대해 3D coil을 생성한다.
+- 참고: `outer_faces`는 더 이상 입력이 아니며, `instances`로부터 자동 파생된다.
+
+---
+
+## 6) 지금 기준으로 “안 되는 것/미구현”
+- `tv.screen_diag_in`, `tv.aspect_ratio`로 width/height를 자동 계산하는 기능은 없다(필요하면 TOML에 `width_mm/height_mm`를 직접 넣어야 함).
+- 코일은 polyline-sweep가 아니라 box-strip 근사이다.
+- 인스턴스 간 series/parallel 연결(하나의 연속 도체로 연결)은 아직 없다(인스턴스별 독립 도체).
+- L/R/손실/SRF는 이 repo에서 결정론적으로 계산하지 않는다(데이터셋 파이프라인은 genes/derived 저장까지).

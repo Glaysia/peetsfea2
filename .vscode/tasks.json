@@ -2,13 +2,9 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "cleanup-aedt",
+      "label": "Clean tmp/aedt",
       "type": "shell",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "rm -rf ./* ./.??* 2>/dev/null || true"
-      ],
+      "command": "rm -rf ../aedt/* 2>/dev/null || true",
       "options": {
         "cwd": "${workspaceFolder}/tmp/aedt"
       },

@@ -41,13 +41,45 @@ class TxCoilOuterFacesSample:
 
 
 @dataclass(frozen=True)
-class TxCoilSample:
-    type: str
+class TxCoilInstanceSample:
+    name: str
+    face: str
+    present: bool
+
+    min_trace_width_mm: float
+    min_trace_gap_mm: float
+    edge_clearance_mm: float
+    fill_scale: float
+    pitch_duty: float
+
+    layer_mode_idx: int
+    radial_split_top_turn_fraction: float
+    radial_split_outer_is_top: bool
+
+    spiral_count: int
+    spiral_turns: tuple[int, ...]
+    spiral_direction_idx: tuple[int, ...]
+    spiral_start_edge_idx: tuple[int, ...]
+    dd_split_axis_idx: int
+    dd_gap_mm: float
+    dd_split_ratio: float
+
     trace_layer_count: int
+    inner_plane_axis_idx: int
     inner_plane_axis: str
-    max_inner_pcb_count: int
     inner_pcb_count: int
+    inner_spacing_ratio_half: tuple[float, ...]
     inner_spacing_ratio: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class TxCoilSample:
+    schema: str
+    type: str
+    pattern: str
+    max_spiral_count: int
+    max_inner_pcb_count: int
+    instances: tuple[TxCoilInstanceSample, ...]
     outer_faces: TxCoilOuterFacesSample
 
 

@@ -71,7 +71,7 @@ def run_type1_from_path(path: Path, seed: int) -> Type1RunResult:
         "out_dir": str(kwargs.get("out_dir") or ""),
         "design_name": str(kwargs.get("design_name") or ""),
     },
-) # type: ignore
+)
 def run_type1_aedt_from_path(
     path: Path,
     seed: int,
@@ -89,7 +89,7 @@ def run_type1_aedt_from_path(
     design_name = design_name or full_name
 
     plan: ParametricGeometryPlan = result.geometry
-    apply_parametric_geometry_plan(
+    _ = apply_parametric_geometry_plan(
         plan,
         project_path=project_path,
         design_name=design_name,

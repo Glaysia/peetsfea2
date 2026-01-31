@@ -61,7 +61,7 @@ def _face_axis_and_sign(face_name: str) -> tuple[int, int] | None:
 
 
 def _face_enabled(flag: bool, dim_a: float, dim_b: float) -> bool:
-    return flag and _aspect_ok(dim_a, dim_b)
+    return flag and dim_a > 0 and dim_b > 0
 
 
 def _active_face_flags(sample: Type1Sample) -> dict[str, bool]:
@@ -221,8 +221,6 @@ def build_tx_outer_faces(sample: Type1Sample) -> list[BoxPlan]:
         center: tuple[float, float, float],
     ) -> None:
         if not enabled:
-            return
-        if not _aspect_ok(*face_dims):
             return
         box = _make_box(name, center=center, size=size)
         if box is not None:

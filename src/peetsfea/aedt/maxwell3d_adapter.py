@@ -28,9 +28,7 @@ def _resolve_material_name(material: str, core_name: str) -> str:
         return "copper"
     if material == "fr4":
         return "FR4_epoxy"
-    if material == "vacuum":
-        return "vacuum"
-    raise ValueError(f"Unsupported material: {material}")
+    return "vacuum"
 
 
 def _set_object_color(obj: Any, material: str) -> None:
@@ -50,6 +48,51 @@ def _format_design_value(value: float | str, units: str | None, default_units: s
     return f"{value}{use_units}"
 
 
+def _apply_material_override_prefix(
+    modeler: Any,
+    materials: Any,
+    *,
+    prefix: str,
+    material: str,
+) -> dict[str, Any]:
+    try:
+        if material not in getattr(materials, "material_keys", []):
+            try:
+                materials.add_material(material)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    object_names = []
+    try:
+        object_names = list(getattr(modeler, "object_names", []))
+    except Exception:
+        object_names = []
+
+    targets = [name for name in object_names if name.startswith(prefix)]
+
+    applied = 0
+    failed: list[str] = []
+    for name in targets:
+        try:
+            obj = modeler.get_object_from_name(name)
+            if obj:
+                obj.material_name = material
+                applied += 1
+        except Exception:
+            failed.append(name)
+
+    return {
+        "prefix": prefix,
+        "material": material,
+        "matched_count": len(targets),
+        "applied_count": applied,
+        "failed_count": len(failed),
+        "failed_names": failed[:20],
+    }
+
+
 @log_action(
     "apply_parametric_geometry_plan",
     lambda plan, project_path, design_name, **kwargs: {
@@ -57,19 +100,21 @@ def _format_design_value(value: float | str, units: str | None, default_units: s
         "design_name": design_name,
         "box_count": len(plan.boxes),
         "variable_count": len(plan.variables),
+        "operation_count": len(plan.operations),
     },
-) # type: ignore
+)
 def apply_parametric_geometry_plan(
     plan: ParametricGeometryPlan,
     project_path: Path,
     design_name: str,
     core_material: MaterialSample | None = None,
     config: Maxwell3dConfig | None = None,
-) -> None:
+) -> dict[str, Any]:
     from ansys.aedt.core import Maxwell3d
 
     cfg = config or Maxwell3dConfig()
     app: Maxwell3d | None = None
+    report: dict[str, Any] = {"material_overrides": []}
     try:
         app = Maxwell3d(
             project=str(project_path),
@@ -83,26 +128,29 @@ def apply_parametric_geometry_plan(
         from ansys.aedt.core.modules.material_lib import Materials
         assert isinstance(app.modeler, Modeler3D)
         assert isinstance(app.materials, Materials)
-
+        
         modeler = app.modeler
         materials = app.materials
         modeler.model_units = plan.units_length
 
         mat_name = "vacuum"
         if core_material is not None:
-            mat_name = _material_name(core_material)
-            if mat_name not in materials.material_keys:
-                mat = materials.add_material(mat_name)
-            else:
-                mat = materials[mat_name]
-            if not mat:
-                raise RuntimeError("Material creation failed")
-            if core_material.mu_r != -1:
-                mat.permeability = core_material.mu_r
-            if core_material.epsilon_r != -1:
-                mat.permittivity = core_material.epsilon_r
-            if core_material.conductivity_s_per_m != -1:
-                mat.conductivity = core_material.conductivity_s_per_m
+            try:
+                mat_name = _material_name(core_material)
+                if mat_name not in materials.material_keys:
+                    mat = materials.add_material(mat_name)
+                else:
+                    mat = materials[mat_name]
+                if not mat:
+                    raise RuntimeError("Material creation failed")
+                if core_material.mu_r != -1:
+                    mat.permeability = core_material.mu_r
+                if core_material.epsilon_r != -1:
+                    mat.permittivity = core_material.epsilon_r
+                if core_material.conductivity_s_per_m != -1:
+                    mat.conductivity = core_material.conductivity_s_per_m
+            except Exception:
+                mat_name = "vacuum"
 
         for var in plan.variables:
             if var.is_expression:
@@ -118,12 +166,15 @@ def apply_parametric_geometry_plan(
         for box in plan.boxes:
             mat = _resolve_material_name(box.material, mat_name)
             if mat not in materials.material_keys:
-                materials.add_material(mat)
+                try:
+                    materials.add_material(mat)
+                except Exception:
+                    mat = "vacuum"
             obj = modeler.create_box(
                 list(box.corner_expr),
                 list(box.size_expr),
                 name=box.name,
-                material=mat,
+                matname=mat,
             )
             if obj:
                 _set_object_color(obj, box.material)
@@ -132,7 +183,35 @@ def apply_parametric_geometry_plan(
                 except Exception:
                     obj.model = box.model
 
+        existing = set(modeler.object_names)
+        for op in plan.operations:
+            if op.op == "unite":
+                targets = [name for name in op.targets if name in existing]
+                if len(targets) < 2:
+                    continue
+                modeler.unite(targets, purge=False, keep_originals=op.keep_originals)
+                existing = set(modeler.object_names)
+                continue
+
+            if op.op == "subtract":
+                blanks = [name for name in op.targets if name in existing]
+                tools = [name for name in op.tools if name in existing]
+                if not blanks or not tools:
+                    continue
+                modeler.subtract(blanks, tools, keep_originals=op.keep_originals)
+                existing = set(modeler.object_names)
+                continue
+
+            raise ValueError(f"Unknown operation: {op.op!r}")
+
+        # Boolean ops can result in incorrect material assignment in some AEDT workflows.
+        # Force key prefixes back to copper as a last step.
+        report["material_overrides"].append(
+            _apply_material_override_prefix(modeler, materials, prefix="TX_Coil", material="copper")
+        )
+
         app.save_project()
+        return report
     finally:
         if app is not None:
             app.release_desktop(close_projects=False, close_desktop=False)

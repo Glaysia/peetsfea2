@@ -2,18 +2,15 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run one.py (tmp/aedt)",
+      "name": "Debug tmp/one.py (clean aedt first)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/tmp/one.py",
       "cwd": "${workspaceFolder}/tmp/aedt",
+      "python": "/home/harry/Projects/PythonProjects/.venv/bin/python",
       "console": "integratedTerminal",
-      "justMyCode": false,
-      "preLaunchTask": "cleanup-aedt",
-      "python": "${workspaceFolder}/.venv/bin/python",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src"
-      }
+      "justMyCode": true,
+      "preLaunchTask": "Clean tmp/aedt"
     }
   ]
 }

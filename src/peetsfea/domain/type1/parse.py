@@ -7,6 +7,7 @@ from .spec_models import (
     ConstraintsSpec,
     CoordinateSystemSpec,
     FloorSpec,
+    IntRangeSpec,
     LayoutSpec,
     MaterialCoreSpec,
     MaterialsSpec,
@@ -17,7 +18,7 @@ from .spec_models import (
     RxSpec,
     RxStackSpec,
     TvSpec,
-    TxCoilOuterFacesSpec,
+    TxCoilInstanceSpec,
     TxCoilSpec,
     TxSpec,
     Type1Spec,
@@ -27,33 +28,6 @@ from .spec_models import (
 
 DEFAULT_CORE_W_MM = 100.0
 DEFAULT_CORE_H_MM = 100.0
-VALID_INNER_PLANE_AXES = {"xy", "yz", "zx"}
-PCB_TOTAL_THK_MIN = 1.6
-PCB_TOTAL_THK_MAX = 1.7
-
-
-def _validate_tx_inner_pcb_spec(tx_pcb: PcbSpec, tx_coil: TxCoilSpec) -> None:
-    if tx_coil.inner_plane_axis not in VALID_INNER_PLANE_AXES:
-        raise SpecValidationError(
-            f"tx.coil.inner_plane_axis must be one of {sorted(VALID_INNER_PLANE_AXES)}, got {tx_coil.inner_plane_axis!r}"
-        )
-    if tx_coil.inner_pcb_count < 0:
-        raise SpecValidationError("tx.coil.inner_pcb_count must be >= 0")
-    if tx_coil.inner_pcb_count > tx_coil.max_inner_pcb_count:
-        raise SpecValidationError("tx.coil.inner_pcb_count must be <= tx.coil.max_inner_pcb_count")
-    required_len = tx_coil.inner_pcb_count + 1
-    if len(tx_coil.inner_spacing_ratio) < required_len:
-        raise SpecValidationError(
-            f"tx.coil.inner_spacing_ratio must have at least {required_len} entries, got {len(tx_coil.inner_spacing_ratio)}"
-        )
-    if sum(tx_coil.inner_spacing_ratio[:required_len]) <= 0:
-        raise SpecValidationError("tx.coil.inner_spacing_ratio sum must be > 0 for used entries")
-    if tx_pcb.layer_count != 2:
-        raise SpecValidationError("tx.pcb.layer_count must be 2 (fixed PCB spec)")
-    if not (PCB_TOTAL_THK_MIN <= tx_pcb.total_thickness_mm <= PCB_TOTAL_THK_MAX):
-        raise SpecValidationError(
-            f"tx.pcb.total_thickness_mm must be between {PCB_TOTAL_THK_MIN} and {PCB_TOTAL_THK_MAX}"
-        )
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -97,6 +71,74 @@ def _range_from_value(value: Any, default: Any) -> RangeSpec:
     single = _as_float(value, 0.0)
     return RangeSpec(single, single, 0.0)
 
+
+def _int_range_from_value(value: Any, default: Any) -> IntRangeSpec:
+    if value is None:
+        value = default
+    if isinstance(value, IntRangeSpec):
+        return value
+    if isinstance(value, list):
+        if len(value) == 3:
+            return IntRangeSpec(_as_int(value[0], 0), _as_int(value[1], 0), _as_int(value[2], 0))
+        if len(value) >= 1:
+            single = _as_int(value[0], 0)
+            return IntRangeSpec(single, single, 0)
+        return IntRangeSpec(0, 0, 0)
+    if value is None:
+        return IntRangeSpec(0, 0, 0)
+    single = _as_int(value, 0)
+    return IntRangeSpec(single, single, 0)
+
+
+def _require_keys(data: dict[str, Any], prefix: str, keys: list[str]) -> None:
+    missing = [key for key in keys if key not in data]
+    if missing:
+        missing_str = ", ".join(f"{prefix}.{key}" for key in missing)
+        raise SpecValidationError(f"Missing required keys: {missing_str}")
+
+
+def _parse_int_range_vec(value: Any, key: str, expected_len: int) -> tuple[IntRangeSpec, ...]:
+    if not isinstance(value, list):
+        raise SpecValidationError(f"Expected list for {key}")
+    if len(value) != expected_len:
+        raise SpecValidationError(f"{key} must have length {expected_len}, got {len(value)}")
+    return tuple(_int_range_from_value(item, item) for item in value)
+
+
+def _parse_range_vec(value: Any, key: str, expected_len: int) -> tuple[RangeSpec, ...]:
+    if not isinstance(value, list):
+        raise SpecValidationError(f"Expected list for {key}")
+    if len(value) != expected_len:
+        raise SpecValidationError(f"{key} must have length {expected_len}, got {len(value)}")
+    return tuple(_range_from_value(item, item) for item in value)
+
+
+def _validate_range_spec(name: str, spec: RangeSpec) -> None:
+    if spec.min > spec.max:
+        raise SpecValidationError(f"{name} must satisfy min <= max")
+    if spec.step < 0:
+        raise SpecValidationError(f"{name} must satisfy step >= 0")
+
+
+def _validate_int_range_spec(
+    name: str,
+    spec: IntRangeSpec,
+    *,
+    step_allowed: set[int] | None = None,
+    min_allowed: int | None = None,
+    max_allowed: int | None = None,
+) -> None:
+    if spec.min > spec.max:
+        raise SpecValidationError(f"{name} must satisfy min <= max")
+    if spec.step < 0:
+        raise SpecValidationError(f"{name} must satisfy step >= 0")
+    if step_allowed is not None and spec.step not in step_allowed:
+        allowed = ", ".join(str(s) for s in sorted(step_allowed))
+        raise SpecValidationError(f"{name}.step must be one of {{{allowed}}}")
+    if min_allowed is not None and spec.min < min_allowed:
+        raise SpecValidationError(f"{name}.min must be >= {min_allowed}")
+    if max_allowed is not None and spec.max > max_allowed:
+        raise SpecValidationError(f"{name}.max must be <= {max_allowed}")
 
 def _get_dict(data: dict[str, Any], key: str) -> dict[str, Any]:
     value = data.get(key, {})
@@ -199,34 +241,168 @@ def parse_type1_spec_dict(data: dict[str, Any]) -> Type1Spec:
         dielectric_epsilon_r=_as_float(tx_pcb_data.get("dielectric_epsilon_r"), 0.0),
         stackup=stackup,
     )
+
     tx_coil_data = _get_dict(tx_data, "coil")
-    outer_faces_data = _get_dict(tx_coil_data, "outer_faces")
-    tx_outer_faces = TxCoilOuterFacesSpec(
-        pos_x=_as_bool(outer_faces_data.get("pos_x"), True),
-        neg_x=_as_bool(outer_faces_data.get("neg_x"), True),
-        pos_y=_as_bool(outer_faces_data.get("pos_y"), True),
-        neg_y=_as_bool(outer_faces_data.get("neg_y"), True),
-        pos_z=_as_bool(outer_faces_data.get("pos_z"), True),
-        neg_z=_as_bool(outer_faces_data.get("neg_z"), True),
+
+    schema = str(tx_coil_data.get("schema", ""))
+    if schema != "instances_v1":
+        raise SpecValidationError("tx.coil.schema must be 'instances_v1'")
+
+    _require_keys(
+        tx_coil_data,
+        "tx.coil",
+        [
+            "type",
+            "pattern",
+            "min_trace_width_mm",
+            "min_trace_gap_mm",
+            "edge_clearance_mm",
+            "fill_scale",
+            "pitch_duty",
+            "layer_mode_idx",
+            "radial_split_top_turn_fraction",
+            "radial_split_outer_is_top",
+            "max_spiral_count",
+            "spiral_count",
+            "spiral_turns",
+            "spiral_direction_idx",
+            "spiral_start_edge_idx",
+            "dd_split_axis_idx",
+            "dd_gap_mm",
+            "dd_split_ratio",
+            "trace_layer_count",
+            "inner_plane_axis_idx",
+            "max_inner_pcb_count",
+            "inner_pcb_count",
+            "inner_spacing_ratio_half",
+            "instances",
+        ],
     )
-    raw_inner_spacing = tx_coil_data.get("inner_spacing_ratio")
-    if raw_inner_spacing is None:
-        inner_spacing_ratio: tuple[float, ...] = ()
-    elif isinstance(raw_inner_spacing, list):
-        inner_spacing_ratio = tuple(_as_float(value, 0.0) for value in raw_inner_spacing)
-    else:
-        raise SpecValidationError("Expected list for tx.coil.inner_spacing_ratio")
-    trace_layer_default = tx_pcb.layer_count if tx_pcb.layer_count > 0 else 0
+
+    max_spiral_count = _as_int(tx_coil_data.get("max_spiral_count"), 2)
+    if max_spiral_count != 2:
+        raise SpecValidationError("tx.coil.max_spiral_count must be 2 (fixed)")
+
+    max_inner_pcb_count = _as_int(tx_coil_data.get("max_inner_pcb_count"), 8)
+    half_len = ((max_inner_pcb_count + 1) + 1) // 2
+
+    raw_instances = tx_coil_data.get("instances")
+    if not isinstance(raw_instances, list) or not raw_instances:
+        raise SpecValidationError("tx.coil.instances must be a non-empty list")
+
+    allowed_faces = {"pos_x", "neg_x", "pos_y", "neg_y", "pos_z", "neg_z"}
+    seen_names: set[str] = set()
+    instances: list[TxCoilInstanceSpec] = []
+    for idx, item in enumerate(raw_instances):
+        if not isinstance(item, dict):
+            raise SpecValidationError(f"tx.coil.instances[{idx}] must be a table")
+        face = str(item.get("face", ""))
+        if face not in allowed_faces:
+            raise SpecValidationError(f"tx.coil.instances[{idx}].face must be one of {sorted(allowed_faces)}")
+        name = str(item.get("name", "")).strip()
+        if not name:
+            name = f"i{idx}_{face}"
+        if not (name[0].isalpha() or name[0] == "_") or not all(c.isalnum() or c == "_" for c in name):
+            raise SpecValidationError(
+                f"tx.coil.instances[{idx}].name must match [A-Za-z_][A-Za-z0-9_]*, got {name!r}"
+            )
+        if name in seen_names:
+            raise SpecValidationError(f"tx.coil.instances[{idx}].name must be unique, got duplicate {name!r}")
+        seen_names.add(name)
+        present = _int_range_from_value(item.get("present"), item.get("present"))
+        instances.append(TxCoilInstanceSpec(name=name, face=face, present=present))
+
+    spiral_turns = _parse_int_range_vec(tx_coil_data.get("spiral_turns"), "tx.coil.spiral_turns", max_spiral_count)
+    spiral_direction_idx = _parse_int_range_vec(
+        tx_coil_data.get("spiral_direction_idx"), "tx.coil.spiral_direction_idx", max_spiral_count
+    )
+    spiral_start_edge_idx = _parse_int_range_vec(
+        tx_coil_data.get("spiral_start_edge_idx"), "tx.coil.spiral_start_edge_idx", max_spiral_count
+    )
+
+    inner_spacing_ratio_half = _parse_range_vec(
+        tx_coil_data.get("inner_spacing_ratio_half"), "tx.coil.inner_spacing_ratio_half", half_len
+    )
+
     tx_coil = TxCoilSpec(
-        type=str(tx_coil_data.get("type", "pcb_trace")),
-        trace_layer_count=_as_int(tx_coil_data.get("trace_layer_count"), trace_layer_default),
-        inner_plane_axis=str(tx_coil_data.get("inner_plane_axis", "yz")),
-        max_inner_pcb_count=_as_int(tx_coil_data.get("max_inner_pcb_count"), 0),
-        inner_pcb_count=_as_int(tx_coil_data.get("inner_pcb_count"), 0),
-        inner_spacing_ratio=inner_spacing_ratio,
-        outer_faces=tx_outer_faces,
+        schema=schema,
+        type=str(tx_coil_data.get("type")),
+        pattern=str(tx_coil_data.get("pattern")),
+        min_trace_width_mm=_range_from_value(tx_coil_data.get("min_trace_width_mm"), tx_coil_data.get("min_trace_width_mm")),
+        min_trace_gap_mm=_range_from_value(tx_coil_data.get("min_trace_gap_mm"), tx_coil_data.get("min_trace_gap_mm")),
+        edge_clearance_mm=_range_from_value(tx_coil_data.get("edge_clearance_mm"), tx_coil_data.get("edge_clearance_mm")),
+        fill_scale=_range_from_value(tx_coil_data.get("fill_scale"), tx_coil_data.get("fill_scale")),
+        pitch_duty=_range_from_value(tx_coil_data.get("pitch_duty"), tx_coil_data.get("pitch_duty")),
+        layer_mode_idx=_int_range_from_value(tx_coil_data.get("layer_mode_idx"), tx_coil_data.get("layer_mode_idx")),
+        radial_split_top_turn_fraction=_range_from_value(
+            tx_coil_data.get("radial_split_top_turn_fraction"), tx_coil_data.get("radial_split_top_turn_fraction")
+        ),
+        radial_split_outer_is_top=_int_range_from_value(
+            tx_coil_data.get("radial_split_outer_is_top"), tx_coil_data.get("radial_split_outer_is_top")
+        ),
+        max_spiral_count=max_spiral_count,
+        spiral_count=_int_range_from_value(tx_coil_data.get("spiral_count"), tx_coil_data.get("spiral_count")),
+        spiral_turns=spiral_turns,
+        spiral_direction_idx=spiral_direction_idx,
+        spiral_start_edge_idx=spiral_start_edge_idx,
+        dd_split_axis_idx=_int_range_from_value(tx_coil_data.get("dd_split_axis_idx"), tx_coil_data.get("dd_split_axis_idx")),
+        dd_gap_mm=_range_from_value(tx_coil_data.get("dd_gap_mm"), tx_coil_data.get("dd_gap_mm")),
+        dd_split_ratio=_range_from_value(tx_coil_data.get("dd_split_ratio"), tx_coil_data.get("dd_split_ratio")),
+        trace_layer_count=_int_range_from_value(tx_coil_data.get("trace_layer_count"), tx_coil_data.get("trace_layer_count")),
+        inner_plane_axis_idx=_int_range_from_value(tx_coil_data.get("inner_plane_axis_idx"), tx_coil_data.get("inner_plane_axis_idx")),
+        max_inner_pcb_count=max_inner_pcb_count,
+        inner_pcb_count=_int_range_from_value(tx_coil_data.get("inner_pcb_count"), tx_coil_data.get("inner_pcb_count")),
+        inner_spacing_ratio_half=inner_spacing_ratio_half,
+        instances=tuple(instances),
     )
-    _validate_tx_inner_pcb_spec(tx_pcb, tx_coil)
+
+    _validate_range_spec("tx.coil.min_trace_width_mm", tx_coil.min_trace_width_mm)
+    if tx_coil.min_trace_width_mm.min <= 0:
+        raise SpecValidationError("tx.coil.min_trace_width_mm.min must be > 0")
+    _validate_range_spec("tx.coil.min_trace_gap_mm", tx_coil.min_trace_gap_mm)
+    if tx_coil.min_trace_gap_mm.min < 0:
+        raise SpecValidationError("tx.coil.min_trace_gap_mm.min must be >= 0")
+    _validate_range_spec("tx.coil.edge_clearance_mm", tx_coil.edge_clearance_mm)
+    if tx_coil.edge_clearance_mm.min < 0:
+        raise SpecValidationError("tx.coil.edge_clearance_mm.min must be >= 0")
+    _validate_range_spec("tx.coil.fill_scale", tx_coil.fill_scale)
+    if not (0.0 < tx_coil.fill_scale.min <= tx_coil.fill_scale.max <= 1.0):
+        raise SpecValidationError("tx.coil.fill_scale must be within (0, 1]")
+    _validate_range_spec("tx.coil.pitch_duty", tx_coil.pitch_duty)
+    if not (0.0 < tx_coil.pitch_duty.min <= tx_coil.pitch_duty.max <= 1.0):
+        raise SpecValidationError("tx.coil.pitch_duty must be within (0, 1]")
+    _validate_int_range_spec("tx.coil.layer_mode_idx", tx_coil.layer_mode_idx, step_allowed={0, 1})
+    _validate_range_spec("tx.coil.radial_split_top_turn_fraction", tx_coil.radial_split_top_turn_fraction)
+    if not (0.0 <= tx_coil.radial_split_top_turn_fraction.min <= tx_coil.radial_split_top_turn_fraction.max <= 1.0):
+        raise SpecValidationError("tx.coil.radial_split_top_turn_fraction must be within [0, 1]")
+    _validate_int_range_spec("tx.coil.radial_split_outer_is_top", tx_coil.radial_split_outer_is_top, step_allowed={0, 1}, min_allowed=0, max_allowed=1)
+    _validate_int_range_spec("tx.coil.spiral_count", tx_coil.spiral_count, step_allowed={0, 1}, min_allowed=1, max_allowed=tx_coil.max_spiral_count)
+    for idx, spec_ in enumerate(tx_coil.spiral_turns, start=1):
+        _validate_int_range_spec(f"tx.coil.spiral_turns[{idx}]", spec_, step_allowed={0, 1}, min_allowed=1)
+    for idx, spec_ in enumerate(tx_coil.spiral_direction_idx, start=1):
+        _validate_int_range_spec(f"tx.coil.spiral_direction_idx[{idx}]", spec_, step_allowed={0, 1}, min_allowed=0, max_allowed=1)
+    for idx, spec_ in enumerate(tx_coil.spiral_start_edge_idx, start=1):
+        _validate_int_range_spec(f"tx.coil.spiral_start_edge_idx[{idx}]", spec_, step_allowed={0, 1}, min_allowed=0, max_allowed=3)
+    _validate_int_range_spec("tx.coil.dd_split_axis_idx", tx_coil.dd_split_axis_idx, step_allowed={0, 1}, min_allowed=0, max_allowed=1)
+    _validate_range_spec("tx.coil.dd_gap_mm", tx_coil.dd_gap_mm)
+    _validate_range_spec("tx.coil.dd_split_ratio", tx_coil.dd_split_ratio)
+    if not (0.0 < tx_coil.dd_split_ratio.min <= tx_coil.dd_split_ratio.max < 1.0):
+        raise SpecValidationError("tx.coil.dd_split_ratio must be within (0, 1)")
+    _validate_int_range_spec("tx.coil.trace_layer_count", tx_coil.trace_layer_count, step_allowed={0, 1}, min_allowed=1, max_allowed=2)
+    _validate_int_range_spec("tx.coil.inner_plane_axis_idx", tx_coil.inner_plane_axis_idx, step_allowed={0, 1}, min_allowed=0, max_allowed=2)
+    _validate_int_range_spec("tx.coil.inner_pcb_count", tx_coil.inner_pcb_count, step_allowed={0, 1}, min_allowed=0, max_allowed=tx_coil.max_inner_pcb_count)
+    if tx_coil.inner_spacing_ratio_half and tx_coil.inner_spacing_ratio_half[0].max <= 0:
+        raise SpecValidationError("tx.coil.inner_spacing_ratio_half[0].max must be > 0")
+    for idx, spec_ in enumerate(tx_coil.inner_spacing_ratio_half, start=1):
+        _validate_range_spec(f"tx.coil.inner_spacing_ratio_half[{idx}]", spec_)
+    for idx, inst in enumerate(tx_coil.instances):
+        _validate_int_range_spec(
+            f"tx.coil.instances[{idx}].present",
+            inst.present,
+            step_allowed={0, 1},
+            min_allowed=0,
+            max_allowed=1,
+        )
     tx_module_data = _get_dict(tx_data, "module")
     tx_module = ModuleSpec(
         present=_as_bool(tx_module_data.get("present"), False),

@@ -1,46 +1,38 @@
-# Long-Term Plan
+# Logging / Telemetry Plan (Current Status + Next)
 
 ## Goal
-Capture high-value operational events ("manager-facing" milestones) via a decorator so that remote runs can be audited and summarized quickly.
+Capture high-value operational events (“manager-facing milestones”) so that long remote runs can be audited and summarized quickly.
 
-## Recommended Logging Dependency
-- **structlog**
-  - Widely used for structured logging in Python
-  - Plays well with standard `logging`
-  - Makes JSON output straightforward for log aggregation
+## Current Status (Implemented)
+- Structured logging is implemented via **structlog** in `src/peetsfea/logging_utils.py`.
+- Decorator is implemented as `@log_action("event_name", context_fn=...)`:
+  - emits `event_name_start` / `event_name_end`
+  - emits `event_name_error` on exception
+  - JSON lines to stdout (ISO timestamp, level, duration, context)
 
-## High-Value Events (Decorator Targets)
-- Pipeline entry points
+### Current decorated entry points (non-exhaustive)
+- Pipeline:
   - `run_type1`, `run_type1_from_path`, `run_type1_aedt_from_path`
-- Geometry generation
+- Geometry:
   - `build_type1_parametric_geometry`
-- AEDT integration
+- AEDT apply:
   - `apply_parametric_geometry_plan`
 
-## Logged Fields (Baseline)
-- `event`: short action name (e.g., `run_type1_start`, `aedt_apply_done`)
-- `timestamp`: ISO8601
-- `seed`, `spec_path`, `project_name`, `design_name`
+## Logging Fields (Baseline)
+- `event`: string key (e.g., `run_type1_from_path_start`)
+- `timestamp`: ISO8601 UTC
 - `duration_ms`
-- `success` / `error`
-- `commit` (optional: git hash if available)
+- Context fields when available:
+  - `seed`, `spec_path`, `project_name`, `design_name`
+  - `box_count`, `variable_count`, `operation_count`
 
-## Proposed Decorator Shape
-- `@log_action(event="...")`
-  - logs `start` and `end`
-  - catches exceptions to log `error`
-  - measures runtime
-
-## Output Format
-- JSON lines (one event per line) to stdout
-- Compatible with common log collectors
-
-## Minimal Integration Steps (later)
-1) Add dependency: `structlog`
-2) Configure JSON renderer + standard logging integration
-3) Implement decorator in a small utility module
-4) Apply decorator to targets above
+## Next Improvements (Optional)
+- Add dataset pipeline events:
+  - `write_type1_dataset_sample_start/end/error`
+- Add “spec hash / version / commit” stamping:
+  - `peetsfea_version` is already available (runner); git hash could be added in CI or via env var.
+- Add a “quiet mode” for CLI tools to reduce JSON logs during large sweeps.
 
 ## Notes
-- Keep logs concise; avoid dumping full specs unless explicitly requested
-- All logs should remain compatible with local runs (stdout only)
+- Keep logs concise; avoid dumping full spec content by default.
+- If a stable machine-readable run summary is needed, write it into dataset artifacts (`meta.json` / `results.json`) rather than logs.

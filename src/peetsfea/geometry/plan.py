@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -13,9 +13,18 @@ class BoxPlan:
 
 
 @dataclass(frozen=True)
+class OperationPlan:
+    op: str  # "unite" | "subtract"
+    targets: list[str]
+    tools: list[str] = field(default_factory=list)
+    keep_originals: bool = False
+
+
+@dataclass(frozen=True)
 class GeometryPlan:
     units_length: str
     boxes: list[BoxPlan]
+    operations: list[OperationPlan] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -40,3 +49,4 @@ class ParametricGeometryPlan:
     units_length: str
     variables: list[DesignVariable]
     boxes: list[ParametricBoxPlan]
+    operations: list[OperationPlan] = field(default_factory=list)

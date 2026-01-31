@@ -7,10 +7,12 @@ from peetsfea.geometry.plan import (
     BoxPlan,
     DesignVariable,
     GeometryPlan,
+    OperationPlan,
     ParametricBoxPlan,
     ParametricGeometryPlan,
 )
 from peetsfea.geometry.type1 import pcb_faces
+from peetsfea.geometry.type1.tx_coil_3d import build_tx_planar_trace_coils
 from peetsfea.logging_utils import log_action
 from peetsfea.sampling.rng import half_size
 
@@ -70,9 +72,7 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
     def _face_enabled(flag: bool, dim_a: float, dim_b: float) -> bool:
         if not flag or dim_a <= 0 or dim_b <= 0:
             return False
-        small = min(dim_a, dim_b)
-        large = max(dim_a, dim_b)
-        return (small / large) >= pcb_faces.ASPECT_MIN_RATIO
+        return True
 
     def _layer_sequence(
         layer_count: int,
@@ -141,7 +141,6 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
     fr4_inner_val = pcb_faces.FR4_INNER_THICKNESS_MM
     copper_val = pcb_faces.COPPER_THICKNESS_MM
     air_gap_val = pcb_faces.AIR_GAP_MM
-    inward_offset_val = pcb_faces.INWARD_OFFSET_FACTOR * pcb_thk_val * 0.5
 
     variables: list[DesignVariable] = [
         var("wall_plane_x", sample.wall_plane_x_mm),
@@ -220,73 +219,11 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
     air_gap_s = sym("pcb_air_gap")
 
     inward_offset_s = sp.Float(pcb_faces.INWARD_OFFSET_FACTOR) * pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
-    scale_s = sp.Float(pcb_faces.IN_PLANE_SCALE)  # pyright: ignore[reportOperatorIssue]
+    scale_s = sp.Float(pcb_faces.IN_PLANE_SCALE)
 
     tx_thk_val = sample.tx_module.thickness_mm
     tx_w_val = sample.tx_module.outer_w_mm
     tx_h_val = sample.tx_module.outer_h_mm
-
-    def _inner_pcb_available_val(axis: str, inner_count: int) -> float:
-        half_thk = pcb_thk_val * 0.5
-        if axis == "yz":
-            neg_boundary = sample.wall_plane_x_mm + inward_offset_val + half_thk
-            pos_boundary = sample.wall_plane_x_mm + sample.tx_module.thickness_mm - inward_offset_val - half_thk
-        elif axis == "zx":
-            tx_corner_y_val = sample.tx_position.center_y_mm - half_size(sample.tx_module.outer_w_mm)
-            neg_boundary = tx_corner_y_val + inward_offset_val + half_thk
-            pos_boundary = tx_corner_y_val + sample.tx_module.outer_w_mm - inward_offset_val - half_thk
-        elif axis == "xy":
-            tx_corner_z_val = sample.tx_position.center_z_mm - half_size(sample.tx_module.outer_h_mm)
-            neg_boundary = tx_corner_z_val + inward_offset_val + half_thk
-            pos_boundary = tx_corner_z_val + sample.tx_module.outer_h_mm - inward_offset_val - half_thk
-        else:
-            raise ValueError(f"Unsupported inner_plane_axis: {axis!r}")
-        return (pos_boundary - neg_boundary) - inner_count * pcb_thk_val
-
-    def _inner_pcb_boundaries(axis: str) -> tuple[sp.Expr, sp.Expr]:
-        if axis == "yz":
-            neg_boundary = wall_plane_x_s + inward_offset_s + pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
-            pos_boundary = wall_plane_x_s + tx_core_thk_s - inward_offset_s - pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
-            return neg_boundary, pos_boundary
-        if axis == "zx":
-            neg_boundary = tx_corner_y_expr + inward_offset_s + pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
-            pos_boundary = tx_corner_y_expr + tx_core_w_s - inward_offset_s - pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
-            return neg_boundary, pos_boundary
-        if axis == "xy":
-            neg_boundary = tx_corner_z_expr + inward_offset_s + pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
-            pos_boundary = tx_corner_z_expr + tx_core_h_s - inward_offset_s - pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
-            return neg_boundary, pos_boundary
-        raise ValueError(f"Unsupported inner_plane_axis: {axis!r}")
-
-    def _inner_pcb_centers(
-        axis: str,
-        inner_count: int,
-        spacing_ratio: tuple[float, ...],
-    ) -> list[sp.Expr]:
-        if inner_count <= 0:
-            return []
-        available_val = _inner_pcb_available_val(axis, inner_count)
-        if available_val <= 0:
-            raise ValueError("TX inner PCB spacing invalid: available length must be positive")
-        neg_boundary, pos_boundary = _inner_pcb_boundaries(axis)
-        span = pos_boundary - neg_boundary  # pyright: ignore[reportOperatorIssue]
-        available = span - sp.Float(inner_count) * pcb_thk_s  # pyright: ignore[reportOperatorIssue]
-
-        weights = spacing_ratio[: inner_count + 1]
-        total = sum(weights)
-        total_expr = sp.Float(total)  # pyright: ignore[reportOperatorIssue]
-
-        gap_exprs: list[sp.Expr] = []
-        for weight in weights:
-            gap_exprs.append(available * sp.Float(weight) / total_expr)  # pyright: ignore[reportOperatorIssue]
-
-        centers: list[sp.Expr] = []
-        center = neg_boundary + gap_exprs[0] + pcb_thk_s * half  # pyright: ignore[reportOperatorIssue]
-        centers.append(center)
-        for gap in gap_exprs[1:]:
-            center = center + pcb_thk_s + gap  # pyright: ignore[reportOperatorIssue]
-            centers.append(center)
-        return centers
 
     face_flags = {
         "pos_x": _face_enabled(sample.tx_coil.outer_faces.pos_x, tx_w_val, tx_h_val),
@@ -312,14 +249,6 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
             raise ValueError("TX module trimmed width must remain positive")
         if tx_h_val - trim_z_pos_val - trim_z_neg_val <= 0:
             raise ValueError("TX module trimmed height must remain positive")
-        if sample.tx_coil.inner_pcb_count > 0:
-            inner_centers = _inner_pcb_centers(
-                sample.tx_coil.inner_plane_axis,
-                sample.tx_coil.inner_pcb_count,
-                sample.tx_coil.inner_spacing_ratio,
-            )
-        else:
-            inner_centers = []
 
     trim_dist_s = pcb_thk_s + air_gap_s  # pyright: ignore[reportOperatorIssue]
     trim_x_pos = trim_dist_s if face_flags["pos_x"] else sp.Float(0.0)
@@ -359,6 +288,7 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
     )
 
     boxes: list[ParametricBoxPlan] = []
+    operations: list[OperationPlan] = []
     if sample.tx_module.present:
         if not sample.tx_module.model:
             boxes.append(
@@ -388,138 +318,9 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
             )
         )
 
-        def add_face_layers(
-            name_prefix: str,
-            axis: int,
-            sign: int,
-            center_exprs: tuple[sp.Expr, sp.Expr, sp.Expr],
-            size_exprs: tuple[sp.Expr, sp.Expr, sp.Expr],
-        ) -> None:
-            layers = _layer_sequence(sample.tx_pcb.layer_count, pcb_thk_s, fr4_outer_s, fr4_inner_s, copper_s)
-            outer_edge = center_exprs[axis] + sign * size_exprs[axis] * half  # pyright: ignore[reportOperatorIssue]
-            offset = sp.Float(0.0)
-            for label, material, thickness in layers:
-                layer_center_axis = outer_edge - sign * (offset + thickness * half)  # pyright: ignore[reportOperatorIssue]
-                centers = list(center_exprs)
-                sizes = list(size_exprs)
-                centers[axis] = layer_center_axis
-                sizes[axis] = thickness
-                corner_exprs_out: tuple[str, str, str] = (
-                    expr(centers[0] - sizes[0] * half),  # pyright: ignore[reportOperatorIssue]
-                    expr(centers[1] - sizes[1] * half),  # pyright: ignore[reportOperatorIssue]
-                    expr(centers[2] - sizes[2] * half),  # pyright: ignore[reportOperatorIssue]
-                )
-                size_exprs_out: tuple[str, str, str] = (
-                    expr(sizes[0]),
-                    expr(sizes[1]),
-                    expr(sizes[2]),
-                )
-                boxes.append(
-                    ParametricBoxPlan(
-                        name=f"{name_prefix}_{label}",
-                        corner_expr=corner_exprs_out,
-                        size_expr=size_exprs_out,
-                        material=material,
-                        model=True,
-                    )
-                )
-                offset += thickness  # pyright: ignore[reportOperatorIssue]
-
-        yz_size = (pcb_thk_s, tx_core_w_s * scale_s, tx_core_h_s * scale_s)  # pyright: ignore[reportOperatorIssue]
-        xz_size = (tx_core_thk_s * scale_s, pcb_thk_s, tx_core_h_s * scale_s)  # pyright: ignore[reportOperatorIssue]
-        xy_size = (tx_core_thk_s * scale_s, tx_core_w_s * scale_s, pcb_thk_s)  # pyright: ignore[reportOperatorIssue]
-
-        face_center_x_pos = wall_plane_x_s + tx_core_thk_s - inward_offset_s  # pyright: ignore[reportOperatorIssue]
-        face_center_x_neg = wall_plane_x_s + inward_offset_s  # pyright: ignore[reportOperatorIssue]
-        face_center_y_pos = tx_corner_y_expr + tx_core_w_s - inward_offset_s  # pyright: ignore[reportOperatorIssue]
-        face_center_y_neg = tx_corner_y_expr + inward_offset_s  # pyright: ignore[reportOperatorIssue]
-        face_center_z_pos = tx_corner_z_expr + tx_core_h_s - inward_offset_s  # pyright: ignore[reportOperatorIssue]
-        face_center_z_neg = tx_corner_z_expr + inward_offset_s  # pyright: ignore[reportOperatorIssue]
-
-        if face_flags["pos_x"]:
-            add_face_layers(
-                "TX_PCB_Face_PosX",
-                0,
-                1,
-                (face_center_x_pos, tx_center_y_expr, tx_center_z_expr),
-                yz_size,
-            )
-        if face_flags["neg_x"]:
-            add_face_layers(
-                "TX_PCB_Face_NegX",
-                0,
-                -1,
-                (face_center_x_neg, tx_center_y_expr, tx_center_z_expr),
-                yz_size,
-            )
-        if face_flags["pos_y"]:
-            add_face_layers(
-                "TX_PCB_Face_PosY",
-                1,
-                1,
-                (tx_center_x_expr, face_center_y_pos, tx_center_z_expr),
-                xz_size,
-            )
-        if face_flags["neg_y"]:
-            add_face_layers(
-                "TX_PCB_Face_NegY",
-                1,
-                -1,
-                (tx_center_x_expr, face_center_y_neg, tx_center_z_expr),
-                xz_size,
-            )
-        if face_flags["pos_z"]:
-            add_face_layers(
-                "TX_PCB_Face_PosZ",
-                2,
-                1,
-                (tx_center_x_expr, tx_center_y_expr, face_center_z_pos),
-                xy_size,
-            )
-        if face_flags["neg_z"]:
-            add_face_layers(
-                "TX_PCB_Face_NegZ",
-                2,
-                -1,
-                (tx_center_x_expr, tx_center_y_expr, face_center_z_neg),
-                xy_size,
-            )
-
-        if inner_centers:
-            axis_tag = sample.tx_coil.inner_plane_axis.upper()
-            if sample.tx_coil.inner_plane_axis == "yz":
-                axis = 0
-                inner_size = yz_size
-                for idx, center in enumerate(inner_centers, start=1):
-                    add_face_layers(
-                        f"TX_PCB_Inner_{axis_tag}_{idx:02d}",
-                        axis,
-                        1,
-                        (center, tx_center_y_expr, tx_center_z_expr),
-                        inner_size,
-                    )
-            elif sample.tx_coil.inner_plane_axis == "zx":
-                axis = 1
-                inner_size = xz_size
-                for idx, center in enumerate(inner_centers, start=1):
-                    add_face_layers(
-                        f"TX_PCB_Inner_{axis_tag}_{idx:02d}",
-                        axis,
-                        1,
-                        (tx_center_x_expr, center, tx_center_z_expr),
-                        inner_size,
-                    )
-            elif sample.tx_coil.inner_plane_axis == "xy":
-                axis = 2
-                inner_size = xy_size
-                for idx, center in enumerate(inner_centers, start=1):
-                    add_face_layers(
-                        f"TX_PCB_Inner_{axis_tag}_{idx:02d}",
-                        axis,
-                        1,
-                        (tx_center_x_expr, tx_center_y_expr, center),
-                        inner_size,
-                    )
+        tx_coil_boxes, tx_coil_ops = build_tx_planar_trace_coils(sample)
+        boxes.extend(tx_coil_boxes)
+        operations.extend(tx_coil_ops)
 
     if sample.rx_module.present:
         boxes.append(
@@ -569,4 +370,4 @@ def build_type1_parametric_geometry(sample: Type1Sample) -> ParametricGeometryPl
             )
         )
 
-    return ParametricGeometryPlan(units_length=units, variables=variables, boxes=boxes)
+    return ParametricGeometryPlan(units_length=units, variables=variables, boxes=boxes, operations=operations)
